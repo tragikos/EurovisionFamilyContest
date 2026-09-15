@@ -1,0 +1,34 @@
+rules_version = '2';
+
+// Security model for this app: everyone (family members and the admin) signs
+// in anonymously through Firebase Auth just so `request.auth != null` holds -
+// the real gate is the family PIN / admin password checked in the app before
+// it ever writes anything. This is intentionally simple for a casual family
+// app; it is NOT a strong security boundary (anyone with the Firebase config
+// values, which ship in the built JS bundle, could in principle write
+// directly to Firestore). If you need stronger guarantees, move the
+// PIN/admin checks into Cloud Functions callable endpoints instead of
+// enforcing them purely client-side.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    match /meta/config {
+      allow read, write: if signedIn();
+    }
+
+    match /contestants/{contestantId} {
+      allow read, write: if signedIn();
+    }
+
+    match /predictions/{predictionId} {
+      allow read, write: if signedIn();
+    }
+
+    match /results/{resultId} {
+      allow read, write: if signedIn();
+    }
+  }
+}
