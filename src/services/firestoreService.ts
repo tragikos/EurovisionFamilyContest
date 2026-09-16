@@ -9,13 +9,13 @@ import {
   setDoc,
   updateDoc,
 } from 'firebase/firestore'
+import type { FirestoreError } from 'firebase/firestore'
 import { db } from '../firebase'
 import type { Contestant, ContestConfig, FinalResult, Prediction, VotingStatus } from '../types'
 
 // Refs are resolved lazily (not at module load) because `db` is null until
 // Firebase env vars are configured - these functions are only ever called
-// after ensureAnonymousAuth() has resolved, by which point db is guaranteed
-// to exist, so the non-null assertion here is safe.
+// after a user has signed in, by which point db is guaranteed to exist.
 function requireDb() {
   if (!db) throw new Error('Firebase is not configured.')
   return db
@@ -36,16 +36,22 @@ export function slugify(value: string): string {
   )
 }
 
-export function subscribeConfig(callback: (config: ContestConfig | null) => void) {
-  return onSnapshot(configRef(), (snapshot) => {
-    callback(snapshot.exists() ? (snapshot.data() as ContestConfig) : null)
-  })
+function logSnapshotError(what: string) {
+  return (error: FirestoreError) => console.error(`Failed to subscribe to ${what}:`, error)
 }
 
-export async function initializeConfig(familyPinHash: string, adminPasswordHash: string) {
+export function subscribeConfig(callback: (config: ContestConfig | null) => void) {
+  return onSnapshot(
+    configRef(),
+    (snapshot) => callback(snapshot.exists() ? (snapshot.data() as ContestConfig) : null),
+    logSnapshotError('config'),
+  )
+}
+
+/** Bootstraps the contest the first time anyone signs in, making that person the first admin. */
+export async function createConfig(adminEmail: string) {
   const config: ContestConfig = {
-    familyPinHash,
-    adminPasswordHash,
+    adminEmails: [adminEmail],
     votingStatus: 'not_started',
   }
   await setDoc(configRef(), config)
@@ -55,11 +61,17 @@ export async function setVotingStatus(status: VotingStatus) {
   await updateDoc(configRef(), { votingStatus: status })
 }
 
+export async function setAdminEmails(emails: string[]) {
+  await updateDoc(configRef(), { adminEmails: emails })
+}
+
 export function subscribeContestants(callback: (contestants: Contestant[]) => void) {
   const contestantsQuery = query(contestantsCol(), orderBy('appearanceOrder'))
-  return onSnapshot(contestantsQuery, (snapshot) => {
-    callback(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as Contestant))
-  })
+  return onSnapshot(
+    contestantsQuery,
+    (snapshot) => callback(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as Contestant)),
+    logSnapshotError('contestants'),
+  )
 }
 
 /**
@@ -88,25 +100,34 @@ export async function saveContestants(countries: string[]) {
 }
 
 export function subscribePredictions(callback: (predictions: Prediction[]) => void) {
-  return onSnapshot(predictionsCol(), (snapshot) => {
-    callback(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as Prediction))
-  })
+  return onSnapshot(
+    predictionsCol(),
+    (snapshot) => callback(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as Prediction)),
+    logSnapshotError('predictions'),
+  )
 }
 
-export async function submitPrediction(memberName: string, order: string[]) {
-  const id = slugify(memberName)
+/**
+ * The prediction's doc id is the signer's own Firebase uid (not a slug of
+ * their name), both so two people can't collide on the same display name
+ * and so Firestore rules can enforce "you may only write your own
+ * prediction" with a simple `request.auth.uid == predictionId` check.
+ */
+export async function submitPrediction(uid: string, memberName: string, order: string[]) {
   const prediction: Omit<Prediction, 'id'> = {
     memberName: memberName.trim(),
     order,
     updatedAt: Date.now(),
   }
-  await setDoc(doc(predictionsCol(), id), prediction)
+  await setDoc(doc(predictionsCol(), uid), prediction)
 }
 
 export function subscribeResult(callback: (result: FinalResult | null) => void) {
-  return onSnapshot(resultsRef(), (snapshot) => {
-    callback(snapshot.exists() ? (snapshot.data() as FinalResult) : null)
-  })
+  return onSnapshot(
+    resultsRef(),
+    (snapshot) => callback(snapshot.exists() ? (snapshot.data() as FinalResult) : null),
+    logSnapshotError('result'),
+  )
 }
 
 export async function saveFinalResult(order: string[]) {

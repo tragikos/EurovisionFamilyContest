@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useContestData } from '../context/ContestDataContext'
+import { useAuth } from '../context/AuthContext'
 import { SortableList } from '../components/SortableList'
 import {
   resetContest,
   saveContestants,
   saveFinalResult,
+  setAdminEmails,
   setVotingStatus,
 } from '../services/firestoreService'
 import type { Contestant, VotingStatus } from '../types'
@@ -20,6 +22,7 @@ export function AdminPage() {
       <ContestantsCard contestants={contestants} votingStatus={config.votingStatus} />
       <SubmissionsCard predictions={predictions} />
       {config.votingStatus === 'closed' && <FinalStandingCard contestants={contestants} />}
+      <AdminsCard adminEmails={config.adminEmails} />
       <DangerZoneCard />
     </div>
   )
@@ -216,6 +219,78 @@ function FinalStandingCard({ contestants }: { contestants: Contestant[] }) {
           {saving ? 'Saving…' : 'Finalize results'}
         </button>
       </div>
+    </div>
+  )
+}
+
+function AdminsCard({ adminEmails }: { adminEmails: string[] }) {
+  const { user } = useAuth()
+  const [emails, setEmails] = useState<string[]>(adminEmails)
+  const [newEmail, setNewEmail] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => setEmails(adminEmails), [adminEmails])
+
+  function addEmail() {
+    const trimmed = newEmail.trim().toLowerCase()
+    if (!trimmed || emails.includes(trimmed)) return
+    setEmails((prev) => [...prev, trimmed])
+    setNewEmail('')
+  }
+
+  function removeEmail(email: string) {
+    setEmails((prev) => prev.filter((e) => e !== email))
+  }
+
+  async function handleSave() {
+    if (emails.length === 0) {
+      setError('There must be at least one admin.')
+      return
+    }
+    setError(null)
+    setSaving(true)
+    try {
+      await setAdminEmails(emails)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2>Admins</h2>
+      <p className="hint-text">
+        Anyone signed in with one of these Google accounts gets admin access. Add a spouse or co-organizer here.
+      </p>
+      <ul className="submissions-list">
+        {emails.map((email) => (
+          <li key={email} className="admin-email-row">
+            <span>
+              {email}
+              {user?.email === email && <span className="hint-text"> (you)</span>}
+            </span>
+            <button type="button" className="link-button link-button--danger" onClick={() => removeEmail(email)}>
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="form-actions">
+        <input
+          className="admin-email-input"
+          value={newEmail}
+          placeholder="name@gmail.com"
+          onChange={(e) => setNewEmail(e.target.value)}
+        />
+        <button type="button" className="secondary-button" onClick={addEmail}>
+          + Add admin
+        </button>
+        <button type="button" className="primary-button" onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving…' : 'Save admins'}
+        </button>
+      </div>
+      {error && <p className="error-text">{error}</p>}
     </div>
   )
 }

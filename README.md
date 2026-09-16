@@ -6,12 +6,13 @@ window and enters the real result once the show is over.
 
 ## How it works
 
-- **Admin** sets up the contestant countries and their running (performance)
-  order, then manually **starts voting**.
-- While voting is **open**, each **family member** logs in with their name and
-  a shared family PIN, then drags the contestants into the order they predict
-  they'll actually finish in (1st place at the top). They can change their
-  mind and resubmit as many times as they like.
+- Everyone signs in with their own **Google account** — no shared password to
+  hand out. The first person to ever sign in becomes the first admin.
+- **Admin(s)** set up the contestant countries and their running (performance)
+  order, then manually **start voting**.
+- While voting is **open**, each **family member** drags the contestants into
+  the order they predict they'll actually finish in (1st place at the top).
+  They can change their mind and resubmit as many times as they like.
 - The admin manually **ends voting**, then enters the **actual final
   standing** once it's announced.
 - The app automatically computes each family member's score (sum of how far
@@ -26,8 +27,7 @@ refresh when the admin opens/closes voting or the results come in.
 - React 19 + TypeScript + Vite
 - React Router (`HashRouter`, so it works on GitHub Pages without extra
   server config)
-- Firebase (Firestore for data, anonymous Auth just to satisfy security
-  rules — see "Security model" below)
+- Firebase (Firestore for data, Google sign-in for identity)
 - [`@dnd-kit`](https://dndkit.com/) for the drag-and-drop ordering lists
 - Deployed to **GitHub Pages** via GitHub Actions
 
@@ -42,7 +42,8 @@ directly from the browser.
    create a new project (the free "Spark" plan is enough).
 2. Enable **Firestore Database** (production mode is fine — rules are in
    `firebase/firestore.rules`).
-3. Enable **Authentication > Sign-in method > Anonymous**.
+3. Enable **Authentication > Sign-in method > Google** (pick a support email
+   when asked).
 4. Add a **Web app** to the project and copy the `firebaseConfig` values.
 5. In this project, copy `.env.example` to `.env` and fill in those values:
 
@@ -62,10 +63,11 @@ npm install
 npm run dev
 ```
 
-Open the printed local URL. The very first person to open the app (usually
-you, testing it) will see a **first-time setup** screen to choose the shared
-family PIN and the admin password — these are hashed (SHA-256) before being
-stored in Firestore, never stored in plain text.
+Open the printed local URL and sign in with your own Google account. Since
+nobody has set up the contest yet, you'll see a **first-time setup** screen —
+continuing there makes your Google account the first admin (stored as your
+email in Firestore, in `meta/config.adminEmails`). You can add more admins
+later from the Admin page (e.g. a spouse or co-organizer).
 
 ### 3. Deploy to GitHub Pages
 
@@ -79,6 +81,9 @@ stored in Firestore, never stored in plain text.
    `VITE_FIREBASE_APP_ID`.
 4. Push to `main` — the included workflow (`.github/workflows/deploy.yml`)
    builds the app and deploys it to GitHub Pages automatically.
+5. **Important:** once deployed, add your GitHub Pages domain (e.g.
+   `yourname.github.io`) to Firebase **Authentication > Settings > Authorized
+   domains** — Google sign-in will fail on the live site until you do this.
 
 The workflow sets the Vite `base` path to `/<repo-name>/` automatically, so
 it works whatever you name the repository (see `vite.config.ts` if you ever
@@ -89,29 +94,30 @@ var).
 
 This is built for casual use by a trusted family, not a public product:
 
-- The family PIN and admin password are stored as SHA-256 hashes in Firestore
-  and checked client-side — there's no server to keep secrets on, since the
-  whole app is static.
-- Firestore security rules only require that a request is authenticated
-  (anonymously — anyone can get an anonymous Firebase session with no
-  credentials). They do **not** independently enforce the PIN/admin checks.
-- Practically: anyone who has your Firebase config values (which are public
-  in the built JS bundle, by nature of being a client-side app) could in
-  principle write directly to Firestore, bypassing the UI.
-
-For a family prediction game this is a reasonable trade-off. If you want
-stronger guarantees, move the PIN/admin verification into Firebase Cloud
-Functions (callable functions) and tighten `firestore.rules` to only allow
-writes through those functions.
+- Every participant signs in with a real Google account, so
+  `request.auth` in Firestore rules is a genuine per-person identity — not
+  just a formality. Rules enforce that you can only write your own
+  prediction (`request.auth.uid == predictionId`), and that only emails
+  listed in `meta/config.adminEmails` can manage contestants, voting status,
+  and results (see `firebase/firestore.rules`).
+- The one soft spot is bootstrapping: the `meta/config` document can be
+  *created* by anyone signed in (so the first visitor can become the first
+  admin) but only *updated* by an existing admin afterwards. In practice this
+  means whoever opens the freshly-deployed link first claims admin — so set
+  it up yourself before sharing the link with the family.
+- Anyone with a Google account can sign in and submit a prediction under
+  their own name; there's no invite-only allowlist of family members. That's
+  fine for a link only your family has, but don't post it publicly.
 
 ## Project structure
 
 ```
 src/
   components/     Reusable UI (drag-and-drop list, layout, leaderboard, ...)
-  context/        Session (who's logged in) and live Firestore data
+  context/        Auth (Google sign-in state) and live Firestore data
+  hooks/          useIsAdmin (checks the signed-in email against adminEmails)
   pages/          Login/setup, family member voting page, admin page
-  services/       Firestore reads/writes, scoring algorithm, hashing
+  services/       Firestore reads/writes, scoring algorithm
 firebase/
   firestore.rules Security rules to paste into the Firebase console
 .github/workflows/deploy.yml   CI build + GitHub Pages deploy
@@ -122,4 +128,4 @@ firebase/
 The admin page has a "danger zone" with a **Reset contest** button that clears
 all predictions and the final result (optionally the contestant list too) and
 puts voting back to "not started", so the same deployment can be reused for
-next year's contest.
+next year's contest. The admin list is left untouched.

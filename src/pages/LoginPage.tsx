@@ -1,18 +1,45 @@
 import { useState } from 'react'
-import type { FormEvent } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { useContestData } from '../context/ContestDataContext'
-import { useSession } from '../context/SessionContext'
-import { initializeConfig } from '../services/firestoreService'
-import { sha256Hex } from '../services/crypto'
+import { createConfig } from '../services/firestoreService'
+
+function GoogleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"
+      />
+      <path
+        fill="#34A853"
+        d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.81.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.95v2.33A9 9 0 0 0 9 18z"
+      />
+      <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.95A9 9 0 0 0 0 9c0 1.45.35 2.83.95 4.03l3-2.33z" />
+      <path
+        fill="#EA4335"
+        d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .95 4.97l3 2.33C4.66 5.17 6.65 3.58 9 3.58z"
+      />
+    </svg>
+  )
+}
 
 export function LoginPage() {
+  const { user, authReady, signIn } = useAuth()
   const { ready, error, config } = useContestData()
-  const { session, login } = useSession()
-  const navigate = useNavigate()
+  const [signingIn, setSigningIn] = useState(false)
+  const [signInError, setSignInError] = useState<string | null>(null)
 
-  if (session) {
-    return <Navigate to={session.isAdmin ? '/admin' : '/'} replace />
+  async function handleSignIn() {
+    setSignInError(null)
+    setSigningIn(true)
+    try {
+      await signIn()
+    } catch (err) {
+      setSignInError(err instanceof Error ? err.message : 'Sign-in failed.')
+    } finally {
+      setSigningIn(false)
+    }
   }
 
   if (error) {
@@ -25,7 +52,7 @@ export function LoginPage() {
     )
   }
 
-  if (!ready) {
+  if (!authReady || (user && !ready)) {
     return (
       <div className="auth-card">
         <p>Connecting…</p>
@@ -33,61 +60,36 @@ export function LoginPage() {
     )
   }
 
-  const needsSetup = !config || !config.familyPinHash || !config.adminPasswordHash
-
-  if (needsSetup) {
-    return <SetupForm onDone={() => window.location.reload()} />
+  if (!user) {
+    return (
+      <div className="auth-card">
+        <h1>Welcome</h1>
+        <p>Sign in with your Google account to pick your Eurovision order.</p>
+        <button type="button" className="google-button" onClick={handleSignIn} disabled={signingIn}>
+          <GoogleIcon />
+          {signingIn ? 'Signing in…' : 'Sign in with Google'}
+        </button>
+        {signInError && <p className="error-text">{signInError}</p>}
+      </div>
+    )
   }
 
-  return (
-    <LoginForm
-      familyPinHash={config.familyPinHash as string}
-      adminPasswordHash={config.adminPasswordHash as string}
-      onLogin={(next) => {
-        login(next)
-        navigate(next.isAdmin ? '/admin' : '/', { replace: true })
-      }}
-    />
-  )
+  if (!config) {
+    return <BootstrapAdmin email={user.email} />
+  }
+
+  return <Navigate to="/" replace />
 }
 
-function SetupForm({ onDone }: { onDone: () => void }) {
-  const [familyPin, setFamilyPin] = useState('')
-  const [confirmPin, setConfirmPin] = useState('')
-  const [adminPassword, setAdminPassword] = useState('')
-  const [confirmAdminPassword, setConfirmAdminPassword] = useState('')
+function BootstrapAdmin({ email }: { email: string }) {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault()
-    setFormError(null)
-
-    if (familyPin.trim().length < 4) {
-      setFormError('Family PIN should be at least 4 characters.')
-      return
-    }
-    if (familyPin !== confirmPin) {
-      setFormError('Family PIN confirmation does not match.')
-      return
-    }
-    if (adminPassword.trim().length < 4) {
-      setFormError('Admin password should be at least 4 characters.')
-      return
-    }
-    if (adminPassword !== confirmAdminPassword) {
-      setFormError('Admin password confirmation does not match.')
-      return
-    }
-
+  async function handleClaim() {
     setSubmitting(true)
+    setFormError(null)
     try {
-      const [pinHash, adminHash] = await Promise.all([
-        sha256Hex(familyPin.trim()),
-        sha256Hex(adminPassword.trim()),
-      ])
-      await initializeConfig(pinHash, adminHash)
-      onDone()
+      await createConfig(email)
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Something went wrong.')
       setSubmitting(false)
@@ -98,152 +100,13 @@ function SetupForm({ onDone }: { onDone: () => void }) {
     <div className="auth-card">
       <h1>First-time setup</h1>
       <p>
-        Nobody has configured this contest yet. Choose a shared <strong>family PIN</strong> (for everyone
-        picking their order) and a separate <strong>admin password</strong> (for whoever runs the contest).
+        Nobody has set up this contest yet. Continue as <strong>{email}</strong> to become the admin - you'll
+        be able to add contestants and open voting next.
       </p>
-      <form onSubmit={handleSubmit} className="auth-form">
-        <label>
-          Family PIN
-          <input
-            type="password"
-            value={familyPin}
-            onChange={(e) => setFamilyPin(e.target.value)}
-            autoComplete="new-password"
-          />
-        </label>
-        <label>
-          Confirm family PIN
-          <input
-            type="password"
-            value={confirmPin}
-            onChange={(e) => setConfirmPin(e.target.value)}
-            autoComplete="new-password"
-          />
-        </label>
-        <label>
-          Admin password
-          <input
-            type="password"
-            value={adminPassword}
-            onChange={(e) => setAdminPassword(e.target.value)}
-            autoComplete="new-password"
-          />
-        </label>
-        <label>
-          Confirm admin password
-          <input
-            type="password"
-            value={confirmAdminPassword}
-            onChange={(e) => setConfirmAdminPassword(e.target.value)}
-            autoComplete="new-password"
-          />
-        </label>
-        {formError && <p className="error-text">{formError}</p>}
-        <button type="submit" className="primary-button" disabled={submitting}>
-          {submitting ? 'Saving…' : 'Save and continue'}
-        </button>
-      </form>
-    </div>
-  )
-}
-
-function LoginForm({
-  familyPinHash,
-  adminPasswordHash,
-  onLogin,
-}: {
-  familyPinHash: string
-  adminPasswordHash: string
-  onLogin: (session: { memberName: string; isAdmin: boolean }) => void
-}) {
-  const [mode, setMode] = useState<'member' | 'admin'>('member')
-  const [name, setName] = useState('')
-  const [pin, setPin] = useState('')
-  const [adminPassword, setAdminPassword] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault()
-    setFormError(null)
-    setSubmitting(true)
-    try {
-      if (mode === 'member') {
-        if (!name.trim()) {
-          setFormError('Enter your name.')
-          return
-        }
-        const hash = await sha256Hex(pin.trim())
-        if (hash !== familyPinHash) {
-          setFormError('Incorrect family PIN.')
-          return
-        }
-        onLogin({ memberName: name.trim(), isAdmin: false })
-      } else {
-        const hash = await sha256Hex(adminPassword.trim())
-        if (hash !== adminPasswordHash) {
-          setFormError('Incorrect admin password.')
-          return
-        }
-        onLogin({ memberName: 'Admin', isAdmin: true })
-      }
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <div className="auth-card">
-      <h1>Welcome back</h1>
-      <div className="tab-switch">
-        <button
-          type="button"
-          className={mode === 'member' ? 'tab-switch__button tab-switch__button--active' : 'tab-switch__button'}
-          onClick={() => setMode('member')}
-        >
-          Family member
-        </button>
-        <button
-          type="button"
-          className={mode === 'admin' ? 'tab-switch__button tab-switch__button--active' : 'tab-switch__button'}
-          onClick={() => setMode('admin')}
-        >
-          Admin
-        </button>
-      </div>
-      <form onSubmit={handleSubmit} className="auth-form">
-        {mode === 'member' ? (
-          <>
-            <label>
-              Your name
-              <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
-            </label>
-            <label>
-              Family PIN
-              <input
-                type="password"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                autoComplete="current-password"
-              />
-            </label>
-          </>
-        ) : (
-          <label>
-            Admin password
-            <input
-              type="password"
-              value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
-              autoComplete="current-password"
-            />
-          </label>
-        )}
-        {formError && <p className="error-text">{formError}</p>}
-        <button type="submit" className="primary-button" disabled={submitting}>
-          {submitting ? 'Checking…' : 'Enter'}
-        </button>
-      </form>
+      {formError && <p className="error-text">{formError}</p>}
+      <button type="button" className="primary-button" onClick={handleClaim} disabled={submitting}>
+        {submitting ? 'Setting up…' : "I'll be the admin"}
+      </button>
     </div>
   )
 }

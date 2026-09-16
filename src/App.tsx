@@ -1,15 +1,16 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { SessionProvider, useSession } from './context/SessionContext'
+import { AuthProvider } from './context/AuthContext'
 import { ContestDataProvider } from './context/ContestDataContext'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { LoginPage } from './pages/LoginPage'
 import { VotePage } from './pages/VotePage'
 import { AdminPage } from './pages/AdminPage'
+import { useIsAdmin } from './hooks/useIsAdmin'
 
 export default function App() {
   return (
-    <SessionProvider>
+    <AuthProvider>
       <ContestDataProvider>
         <HashRouter>
           <Layout>
@@ -36,13 +37,13 @@ export default function App() {
           </Layout>
         </HashRouter>
       </ContestDataProvider>
-    </SessionProvider>
+    </AuthProvider>
   )
 }
 
 function HomeRoute() {
-  const { session } = useSession()
-  if (session?.isAdmin) {
+  const isAdmin = useIsAdmin()
+  if (isAdmin) {
     return <Navigate to="/admin" replace />
   }
   return <VotePage />

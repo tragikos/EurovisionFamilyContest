@@ -1,8 +1,7 @@
-export type VotingStatus = 'setup' | 'not_started' | 'open' | 'closed' | 'finalized'
+export type VotingStatus = 'not_started' | 'open' | 'closed' | 'finalized'
 
 export interface ContestConfig {
-  familyPinHash: string | null
-  adminPasswordHash: string | null
+  adminEmails: string[]
   votingStatus: VotingStatus
 }
 
@@ -30,7 +29,8 @@ export interface StandingEntry {
   rank: number
 }
 
-export interface Session {
-  memberName: string
-  isAdmin: boolean
+export interface AuthUser {
+  uid: string
+  email: string
+  displayName: string
 }

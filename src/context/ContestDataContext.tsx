@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ensureAnonymousAuth } from '../firebase'
+import { useAuth } from './AuthContext'
 import {
   subscribeConfig,
   subscribeContestants,
@@ -21,6 +21,7 @@ interface ContestDataValue {
 const ContestDataContext = createContext<ContestDataValue | null>(null)
 
 export function ContestDataProvider({ children }: { children: ReactNode }) {
+  const { user, authReady } = useAuth()
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [config, setConfig] = useState<ContestConfig | null>(null)
@@ -29,24 +30,30 @@ export function ContestDataProvider({ children }: { children: ReactNode }) {
   const [result, setResult] = useState<FinalResult | null>(null)
 
   useEffect(() => {
-    let unsubscribers: Array<() => void> = []
+    if (!authReady) return
 
-    ensureAnonymousAuth()
-      .then(() => {
-        unsubscribers = [
-          subscribeConfig(setConfig),
-          subscribeContestants(setContestants),
-          subscribePredictions(setPredictions),
-          subscribeResult(setResult),
-        ]
-        setReady(true)
-      })
-      .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : 'Failed to connect to Firebase.')
-      })
+    // Firestore rules require request.auth != null, so there's nothing to
+    // read until a participant has signed in with Google.
+    if (!user) {
+      setConfig(null)
+      setContestants([])
+      setPredictions([])
+      setResult(null)
+      setReady(true)
+      return
+    }
+
+    setError(null)
+    const unsubscribers = [
+      subscribeConfig(setConfig),
+      subscribeContestants(setContestants),
+      subscribePredictions(setPredictions),
+      subscribeResult(setResult),
+    ]
+    setReady(true)
 
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
-  }, [])
+  }, [authReady, user])
 
   const value: ContestDataValue = { ready, error, config, contestants, predictions, result }
 

@@ -1,34 +1,45 @@
 rules_version = '2';
 
-// Security model for this app: everyone (family members and the admin) signs
-// in anonymously through Firebase Auth just so `request.auth != null` holds -
-// the real gate is the family PIN / admin password checked in the app before
-// it ever writes anything. This is intentionally simple for a casual family
-// app; it is NOT a strong security boundary (anyone with the Firebase config
-// values, which ship in the built JS bundle, could in principle write
-// directly to Firestore). If you need stronger guarantees, move the
-// PIN/admin checks into Cloud Functions callable endpoints instead of
-// enforcing them purely client-side.
+// Every participant signs in with their own Google account, so unlike a
+// shared-secret scheme, request.auth is a real, per-person identity here -
+// these rules are a genuine security boundary, not just a formality.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
       return request.auth != null;
     }
 
+    function isAdmin() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/meta/config) &&
+        request.auth.token.email in
+          get(/databases/$(database)/documents/meta/config).data.adminEmails;
+    }
+
     match /meta/config {
-      allow read, write: if signedIn();
+      allow read: if signedIn();
+      // Anyone signed in may create the config doc if it doesn't exist yet
+      // (whoever sets up the contest first becomes the first admin); after
+      // that, only an existing admin may change it (including adminEmails).
+      allow create: if signedIn();
+      allow update: if isAdmin();
     }
 
     match /contestants/{contestantId} {
-      allow read, write: if signedIn();
+      allow read: if signedIn();
+      allow write: if isAdmin();
     }
 
     match /predictions/{predictionId} {
-      allow read, write: if signedIn();
+      allow read: if signedIn();
+      // You may only ever write your own prediction - the doc id is your uid.
+      allow create, update: if signedIn() && request.auth.uid == predictionId;
+      allow delete: if isAdmin();
     }
 
     match /results/{resultId} {
-      allow read, write: if signedIn();
+      allow read: if signedIn();
+      allow write: if isAdmin();
     }
   }
 }

@@ -1,16 +1,18 @@
 import type { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useSession } from '../context/SessionContext'
+import { useAuth } from '../context/AuthContext'
 import { useContestData } from '../context/ContestDataContext'
+import { useIsAdmin } from '../hooks/useIsAdmin'
 import { StatusBanner } from './StatusBanner'
 
 export function Layout({ children }: { children: ReactNode }) {
-  const { session, logout } = useSession()
+  const { user, signOut } = useAuth()
   const { config } = useContestData()
+  const isAdmin = useIsAdmin()
   const navigate = useNavigate()
 
-  function handleLogout() {
-    logout()
+  async function handleLogout() {
+    await signOut()
     navigate('/login')
   }
 
@@ -22,13 +24,13 @@ export function Layout({ children }: { children: ReactNode }) {
         </Link>
         <div className="app-header__right">
           {config && <StatusBanner status={config.votingStatus} />}
-          {session && (
+          {user && (
             <>
               <span className="app-header__user">
-                {session.memberName}
-                {session.isAdmin ? ' (admin)' : ''}
+                {user.displayName}
+                {isAdmin ? ' (admin)' : ''}
               </span>
-              {session.isAdmin && (
+              {isAdmin && (
                 <Link to="/admin" className="nav-link">
                   Admin
                 </Link>

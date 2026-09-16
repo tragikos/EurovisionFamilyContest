@@ -1,18 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useContestData } from '../context/ContestDataContext'
-import { useSession } from '../context/SessionContext'
+import { useAuth } from '../context/AuthContext'
 import { SortableList } from '../components/SortableList'
 import { Leaderboard } from '../components/Leaderboard'
-import { submitPrediction, slugify } from '../services/firestoreService'
+import { submitPrediction } from '../services/firestoreService'
 import type { Contestant } from '../types'
 
 export function VotePage() {
   const { ready, config, contestants, predictions, result } = useContestData()
-  const { session } = useSession()
+  const { user } = useAuth()
 
-  const myPrediction = session
-    ? predictions.find((p) => p.id === slugify(session.memberName))
-    : undefined
+  const myPrediction = user ? predictions.find((p) => p.id === user.uid) : undefined
 
   const [order, setOrder] = useState<Contestant[]>([])
   const [saving, setSaving] = useState(false)
@@ -31,12 +29,12 @@ export function VotePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contestants.length, myPrediction?.id])
 
-  if (!ready || !session) return null
+  if (!ready || !user) return null
 
   if (!config || contestants.length === 0) {
     return (
       <div className="card">
-        <h1>Welcome, {session.memberName}!</h1>
+        <h1>Welcome, {user.displayName}!</h1>
         <p>The admin hasn't added any contestants yet. Check back soon.</p>
       </div>
     )
@@ -50,7 +48,7 @@ export function VotePage() {
           contestants={contestants}
           predictions={predictions}
           result={result}
-          highlightMemberName={session.memberName}
+          highlightMemberName={user.displayName}
         />
       </div>
     )
@@ -59,7 +57,7 @@ export function VotePage() {
   if (config.votingStatus === 'not_started') {
     return (
       <div className="card">
-        <h1>Welcome, {session.memberName}!</h1>
+        <h1>Welcome, {user.displayName}!</h1>
         <p>Voting hasn't opened yet. Here's the running order for the show:</p>
         <ol className="final-order-list">
           {[...contestants]
@@ -88,11 +86,12 @@ export function VotePage() {
 
   // votingStatus === 'open'
   async function handleSubmit() {
-    if (!session) return
+    if (!user) return
     setSaving(true)
     try {
       await submitPrediction(
-        session.memberName,
+        user.uid,
+        user.displayName,
         order.map((c) => c.id),
       )
       setSavedAt(Date.now())
@@ -103,7 +102,7 @@ export function VotePage() {
 
   return (
     <div className="card">
-      <h1>Pick your order, {session.memberName}!</h1>
+      <h1>Pick your order, {user.displayName}!</h1>
       <p>
         Drag the countries into the order you think they'll finish — 1st place at the top, last place at the
         bottom. You can change your prediction as many times as you like until voting closes.

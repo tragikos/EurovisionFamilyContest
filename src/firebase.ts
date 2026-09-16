@@ -1,6 +1,14 @@
 import { initializeApp } from 'firebase/app'
 import { getFirestore } from 'firebase/firestore'
-import { getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth'
+import {
+  GoogleAuthProvider,
+  getAuth,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+} from 'firebase/auth'
+import type { User } from 'firebase/auth'
+import type { AuthUser } from './types'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -23,40 +31,31 @@ export const app = isFirebaseConfigured ? initializeApp(firebaseConfig) : null
 export const db = app ? getFirestore(app) : null
 export const auth = app ? getAuth(app) : null
 
-let anonymousAuthPromise: Promise<void> | null = null
+function toAuthUser(user: User): AuthUser | null {
+  if (!user.email) return null // Google accounts always have one, but the type allows null
+  return { uid: user.uid, email: user.email, displayName: user.displayName ?? user.email }
+}
 
 /**
- * Firestore security rules require request.auth != null. We use silent
- * anonymous auth (no UI, no password) purely to satisfy that check - the
- * real "who are you" gate is the family PIN / admin password flow.
+ * Every participant (family members and the admin alike) signs in with
+ * their own Google account. This both identifies them (no more shared PIN,
+ * no risk of two people colliding on the same name) and satisfies Firestore
+ * security rules, which check request.auth directly.
  */
-export function ensureAnonymousAuth(): Promise<void> {
-  if (!isFirebaseConfigured || !auth) {
-    return Promise.reject(
-      new Error('Firebase is not configured. Copy .env.example to .env and fill in your Firebase project values.'),
-    )
+export function subscribeAuthUser(callback: (user: AuthUser | null) => void) {
+  if (!auth) {
+    callback(null)
+    return () => {}
   }
-  const authInstance = auth
-  if (!anonymousAuthPromise) {
-    anonymousAuthPromise = new Promise((resolve, reject) => {
-      const unsubscribe = onAuthStateChanged(
-        authInstance,
-        (user) => {
-          if (user) {
-            unsubscribe()
-            resolve()
-          }
-        },
-        (error) => {
-          unsubscribe()
-          reject(error)
-        },
-      )
-      signInAnonymously(authInstance).catch((error) => {
-        unsubscribe()
-        reject(error)
-      })
-    })
-  }
-  return anonymousAuthPromise
+  return onAuthStateChanged(auth, (user) => callback(user ? toAuthUser(user) : null))
+}
+
+export async function signInWithGoogle(): Promise<void> {
+  if (!auth) throw new Error('Firebase is not configured.')
+  await signInWithPopup(auth, new GoogleAuthProvider())
+}
+
+export async function signOutUser(): Promise<void> {
+  if (!auth) return
+  await signOut(auth)
 }

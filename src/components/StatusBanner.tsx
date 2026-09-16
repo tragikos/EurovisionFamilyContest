@@ -1,7 +1,6 @@
 import type { VotingStatus } from '../types'
 
 const LABELS: Record<VotingStatus, string> = {
-  setup: 'Setting up',
   not_started: 'Voting not started',
   open: 'Voting open',
   closed: 'Voting closed',
