@@ -183,6 +183,12 @@ export async function getSeasons(): Promise<Season[]> {
   return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as Season)
 }
 
+/** Writes (or overwrites) one archived season doc directly - used for one-time historical imports. */
+export async function importSeason(season: Season) {
+  const { id, ...data } = season
+  await setDoc(doc(seasonsCol(), id), data)
+}
+
 export function subscribeMembers(callback: (members: Member[]) => void) {
   return onSnapshot(
     membersCol(),

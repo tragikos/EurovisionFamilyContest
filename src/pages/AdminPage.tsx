@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useContestData } from '../context/ContestDataContext'
 import { useAuth } from '../context/AuthContext'
 import { SortableList } from '../components/SortableList'
@@ -6,6 +6,7 @@ import { PredictionOrderList } from '../components/PredictionOrderList'
 import { computeStandings } from '../services/scoring'
 import {
   getSeasons,
+  importSeason,
   inviteMember,
   resetContest,
   saveContestants,
@@ -15,6 +16,7 @@ import {
   setVotingStatus,
   subscribeMembers,
 } from '../services/firestoreService'
+import historicalSeasonsData from '../data/historicalSeasons.json'
 import type { Contestant, Member, Prediction, Season, VotingStatus } from '../types'
 
 export function AdminPage() {
@@ -29,6 +31,7 @@ export function AdminPage() {
       <SubmissionsCard predictions={predictions} contestants={contestants} votingStatus={config.votingStatus} />
       {config.votingStatus === 'closed' && <FinalStandingCard contestants={contestants} />}
       <InvitesCard />
+      <ImportHistoryCard />
       <AdminsCard adminEmails={config.adminEmails} />
       <DangerZoneCard />
     </div>
@@ -184,6 +187,13 @@ function SubmissionsCard({
   // from admins, so an admin who's also playing can't peek at everyone
   // else's picks before adjusting their own.
   const revealPicks = votingStatus !== 'open'
+  const [query, setQuery] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  const sorted = [...predictions].sort((a, b) => a.memberName.localeCompare(b.memberName))
+  const filtered = query.trim()
+    ? sorted.filter((p) => p.memberName.toLowerCase().includes(query.trim().toLowerCase()))
+    : sorted
 
   return (
     <div className="card">
@@ -193,24 +203,41 @@ function SubmissionsCard({
       )}
       {predictions.length === 0 ? (
         <p className="hint-text">Nobody has submitted a prediction yet.</p>
-      ) : revealPicks ? (
-        <ul className="submissions-list">
-          {predictions.map((p) => (
-            <li key={p.id}>
-              <strong>{p.memberName}</strong>{' '}
-              <span className="hint-text">— saved {new Date(p.updatedAt).toLocaleString()}</span>
-              <PredictionOrderList contestants={contestants} order={p.order} />
-            </li>
-          ))}
-        </ul>
       ) : (
-        <ul className="submissions-list">
-          {predictions.map((p) => (
-            <li key={p.id}>
-              {p.memberName} — <span className="hint-text">{new Date(p.updatedAt).toLocaleString()}</span>
-            </li>
-          ))}
-        </ul>
+        <>
+          {predictions.length > 6 && (
+            <input
+              className="admin-email-input"
+              value={query}
+              placeholder="Filter by name…"
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          )}
+          <ul className="submissions-list">
+            {filtered.map((p) => (
+              <li key={p.id}>
+                {revealPicks ? (
+                  <>
+                    <button
+                      type="button"
+                      className="link-button submission-row-toggle"
+                      onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}
+                    >
+                      {expandedId === p.id ? '▾' : '▸'} {p.memberName}
+                    </button>{' '}
+                    <span className="hint-text">— saved {new Date(p.updatedAt).toLocaleString()}</span>
+                    {expandedId === p.id && <PredictionOrderList contestants={contestants} order={p.order} />}
+                  </>
+                ) : (
+                  <>
+                    {p.memberName} — <span className="hint-text">{new Date(p.updatedAt).toLocaleString()}</span>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+          {filtered.length === 0 && <p className="hint-text">No submissions match "{query}".</p>}
+        </>
       )}
     </div>
   )
@@ -366,13 +393,11 @@ function InvitesCard() {
 
 /** Past (archived) submissions only - never the current round, so this can never leak an in-progress vote. */
 function MemberPastSubmissions({ member, seasons }: { member: Member; seasons: Season[] }) {
-  if (!member.uid) {
-    return <p className="hint-text">No past submissions.</p>
-  }
-
+  // Live predictions are keyed by uid; imported historical predictions are
+  // keyed by email (imported before the person ever had a uid) - match either.
   const entries = seasons
     .map((season) => {
-      const prediction = season.predictions.find((p) => p.id === member.uid)
+      const prediction = season.predictions.find((p) => p.id === member.uid || p.id === member.email)
       if (!prediction) return null
       const score = season.result ? computeStandings([prediction], season.result)[0].score : null
       return { season, prediction, score }
@@ -394,6 +419,101 @@ function MemberPastSubmissions({ member, seasons }: { member: Member; seasons: S
           <PredictionOrderList contestants={season.contestants} order={prediction.order} />
         </div>
       ))}
+    </div>
+  )
+}
+
+/**
+ * One-time importer for the years of contest history kept in a spreadsheet
+ * before this app existed. The bundled data already has each participant's
+ * Google email baked into their prediction ids, so this just needs a click.
+ * Safe to click more than once - seasons are keyed by year (re-import
+ * overwrites) and inviting an already-invited email is a no-op.
+ */
+function ImportHistoryCard() {
+  const { user } = useAuth()
+  const [open, setOpen] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+  const [emails, setEmails] = useState<Record<string, string>>({})
+
+  const seasons = historicalSeasonsData as unknown as Season[]
+  const names = useMemo(() => {
+    const set = new Set<string>()
+    for (const season of seasons) {
+      for (const p of season.predictions) set.add(p.memberName)
+    }
+    return [...set].sort()
+  }, [seasons])
+
+  async function handleImport() {
+    if (!user) return
+    setImporting(true)
+    setResult(null)
+    try {
+      let invited = 0
+      let linked = 0
+      const seasonsToWrite = seasons.map((season) => ({
+        ...season,
+        predictions: season.predictions.map((p) => {
+          const email = emails[p.memberName]?.trim().toLowerCase()
+          return email ? { ...p, id: email } : p
+        }),
+      }))
+      for (const name of names) {
+        const email = emails[name]?.trim().toLowerCase()
+        if (!email) continue
+        linked++
+        const created = await inviteMember(email, user.email)
+        if (created) invited++
+      }
+      for (const season of seasonsToWrite) {
+        await importSeason(season)
+      }
+      setResult(
+        `Imported ${seasons.length} seasons. Linked ${linked} of ${names.length} names to an account (${invited} newly invited); unlinked names are still archived, just without an account to show them under yet.`,
+      )
+    } catch (err) {
+      setResult(err instanceof Error ? `Failed: ${err.message}` : 'Import failed.')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  return (
+    <div className="card">
+      <button type="button" className="link-button" onClick={() => setOpen((o) => !o)}>
+        {open ? 'Hide' : 'Show'} one-time history import
+      </button>
+      {open && (
+        <>
+          <p className="hint-text">
+            Imports {seasons.length} past seasons ({seasons[0]?.id}–{seasons[seasons.length - 1]?.id}) from your old
+            spreadsheet. Optionally link each name to their Google account's email so their history shows up once
+            invited - this stays local to your browser and Firestore, it's never bundled into the app or committed
+            to the repo. Leave a name blank to still archive their picks without linking them yet; you can re-run
+            this later with more emails filled in.
+          </p>
+          <div className="import-history-grid">
+            {names.map((name) => (
+              <label key={name} className="import-history-row">
+                <span>{name}</span>
+                <input
+                  value={emails[name] || ''}
+                  placeholder="name@gmail.com (optional)"
+                  onChange={(e) => setEmails((prev) => ({ ...prev, [name]: e.target.value }))}
+                />
+              </label>
+            ))}
+          </div>
+          <div className="form-actions">
+            <button type="button" className="primary-button" onClick={handleImport} disabled={importing}>
+              {importing ? 'Importing…' : 'Import history'}
+            </button>
+            {result && <span className="hint-text">{result}</span>}
+          </div>
+        </>
+      )}
     </div>
   )
 }
