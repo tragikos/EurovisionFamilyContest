@@ -1,5 +1,13 @@
 import type { FinalResult, Prediction, StandingEntry } from '../types'
 
+export interface OverallStanding {
+  memberName: string
+  contests: number
+  wins: number
+  bestScore: number
+  averageScore: number
+}
+
 /**
  * Score = sum of |predicted position - actual position| across every
  * contestant, so lower is better (0 = predicted the final standing exactly).
@@ -33,4 +41,38 @@ export function computeStandings(predictions: Prediction[], result: FinalResult)
     standings.push({ ...entry, rank })
   })
   return standings
+}
+
+/**
+ * Aggregates standings across every finalized contest. People are matched by
+ * their prediction's memberName (an admin-assigned name that stays the same
+ * across seasons for the same person) rather than by id, since ids may be a
+ * uid in one season and an email in another for historical entries.
+ */
+export function computeOverallStandings(rounds: { predictions: Prediction[]; result: FinalResult }[]): OverallStanding[] {
+  const byName = new Map<string, { totalScore: number; contests: number; wins: number; bestScore: number }>()
+
+  for (const round of rounds) {
+    const standings = computeStandings(round.predictions, round.result)
+    for (const entry of standings) {
+      const name = entry.memberName.trim()
+      if (!name) continue
+      const existing = byName.get(name) ?? { totalScore: 0, contests: 0, wins: 0, bestScore: Infinity }
+      existing.totalScore += entry.score
+      existing.contests += 1
+      existing.bestScore = Math.min(existing.bestScore, entry.score)
+      if (entry.rank === 1) existing.wins += 1
+      byName.set(name, existing)
+    }
+  }
+
+  return Array.from(byName.entries())
+    .map(([memberName, v]) => ({
+      memberName,
+      contests: v.contests,
+      wins: v.wins,
+      bestScore: v.bestScore,
+      averageScore: v.totalScore / v.contests,
+    }))
+    .sort((a, b) => a.averageScore - b.averageScore)
 }

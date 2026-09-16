@@ -1,6 +1,7 @@
 import {
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -13,6 +14,7 @@ import {
 import type { FirestoreError } from 'firebase/firestore'
 import { db } from '../firebase'
 import type {
+  BackupData,
   Contestant,
   ContestConfig,
   FinalResult,
@@ -74,6 +76,10 @@ export async function setVotingStatus(status: VotingStatus) {
 
 export async function setAdminEmails(emails: string[]) {
   await updateDoc(configRef(), { adminEmails: emails })
+}
+
+export async function setContestTitle(title: string) {
+  await updateDoc(configRef(), { title })
 }
 
 export function subscribeContestants(callback: (contestants: Contestant[]) => void) {
@@ -150,9 +156,10 @@ export async function saveFinalResult(order: string[]) {
 /**
  * Archives the current contestants/predictions/result as a season snapshot
  * before wiping them, so admins can still look back at everyone's past
- * submissions after the contest is reset for a new year.
+ * submissions after the contest is reset for a new year. The live title is
+ * cleared afterward so the admin picks a fresh one for the new season.
  */
-export async function resetContest(options: { clearContestants: boolean }) {
+export async function resetContest(options: { clearContestants: boolean; title: string }) {
   const [contestantDocs, predictionDocs, resultSnap] = await Promise.all([
     getDocs(contestantsCol()),
     getDocs(predictionsCol()),
@@ -160,6 +167,7 @@ export async function resetContest(options: { clearContestants: boolean }) {
   ])
 
   const season: Omit<Season, 'id'> = {
+    title: options.title || 'Untitled contest',
     archivedAt: Date.now(),
     contestants: contestantDocs.docs.map((d) => ({ id: d.id, ...d.data() }) as Contestant),
     predictions: predictionDocs.docs.map((d) => ({ id: d.id, ...d.data() }) as Prediction),
@@ -174,7 +182,7 @@ export async function resetContest(options: { clearContestants: boolean }) {
     await Promise.all(contestantDocs.docs.map((d) => deleteDoc(d.ref)))
   }
 
-  await updateDoc(configRef(), { votingStatus: 'not_started' satisfies VotingStatus })
+  await updateDoc(configRef(), { votingStatus: 'not_started' satisfies VotingStatus, title: '' })
 }
 
 export async function getSeasons(): Promise<Season[]> {
@@ -183,10 +191,15 @@ export async function getSeasons(): Promise<Season[]> {
   return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as Season)
 }
 
-/** Writes (or overwrites) one archived season doc directly - used for one-time historical imports. */
-export async function importSeason(season: Season) {
-  const { id, ...data } = season
-  await setDoc(doc(seasonsCol(), id), data)
+/** Permanently deletes one archived season (e.g. a test run). Does not touch the live contest. */
+export async function deleteSeason(seasonId: string) {
+  await deleteDoc(doc(seasonsCol(), seasonId))
+}
+
+/** Permanently deletes every archived season. Does not touch the live contest. */
+export async function deleteAllSeasons() {
+  const snapshot = await getDocs(seasonsCol())
+  await Promise.all(snapshot.docs.map((d) => deleteDoc(d.ref)))
 }
 
 export function subscribeMembers(callback: (members: Member[]) => void) {
@@ -206,18 +219,33 @@ export function subscribeMember(email: string, callback: (member: Member | null)
 }
 
 /** Invites a new player by email. No-ops if that email is already invited/active/blocked. */
-export async function inviteMember(email: string, invitedBy: string): Promise<boolean> {
+export async function inviteMember(email: string, invitedBy: string, assignedName?: string): Promise<boolean> {
   const id = email.trim().toLowerCase()
   const ref = doc(membersCol(), id)
   const existing = await getDoc(ref)
   if (existing.exists()) return false
-  const member: Omit<Member, 'email'> = { status: 'invited', invitedAt: Date.now(), invitedBy }
+  const member: Omit<Member, 'email'> = {
+    status: 'invited',
+    invitedAt: Date.now(),
+    invitedBy,
+    ...(assignedName?.trim() ? { assignedName: assignedName.trim() } : {}),
+  }
   await setDoc(ref, member)
   return true
 }
 
 export async function setMemberBlocked(email: string, blocked: boolean) {
   await updateDoc(doc(membersCol(), email), { status: blocked ? 'blocked' : 'active' })
+}
+
+/** Lets an admin set (or clear, with an empty string) the name shown for this player everywhere. */
+export async function setMemberAssignedName(email: string, name: string) {
+  const trimmed = name.trim()
+  if (trimmed) {
+    await updateDoc(doc(membersCol(), email), { assignedName: trimmed })
+  } else {
+    await updateDoc(doc(membersCol(), email), { assignedName: deleteField() })
+  }
 }
 
 /** Called by the signed-in user themselves the first time they log in, flipping their own invite to active. */
@@ -228,4 +256,78 @@ export async function markMemberActive(email: string, uid: string, displayName: 
     displayName,
     firstSignInAt: Date.now(),
   })
+}
+
+/** Reads every collection into one JSON-serializable snapshot, for a manual backup download. */
+export async function exportBackup(): Promise<BackupData> {
+  const [configSnap, contestantsSnap, predictionsSnap, resultSnap, membersSnap, seasonsSnap] = await Promise.all([
+    getDoc(configRef()),
+    getDocs(contestantsCol()),
+    getDocs(predictionsCol()),
+    getDoc(resultsRef()),
+    getDocs(membersCol()),
+    getDocs(seasonsCol()),
+  ])
+
+  return {
+    exportedAt: Date.now(),
+    config: configSnap.exists() ? (configSnap.data() as ContestConfig) : null,
+    contestants: contestantsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Contestant),
+    predictions: predictionsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Prediction),
+    result: resultSnap.exists() ? (resultSnap.data() as FinalResult) : null,
+    members: membersSnap.docs.map((d) => ({ email: d.id, ...d.data() }) as Member),
+    seasons: seasonsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Season),
+  }
+}
+
+/**
+ * Replaces every collection with the contents of a previously exported
+ * backup. Destructive - wipes whatever is currently there first.
+ */
+export async function importBackup(data: BackupData) {
+  const [existingContestants, existingPredictions, existingMembers, existingSeasons] = await Promise.all([
+    getDocs(contestantsCol()),
+    getDocs(predictionsCol()),
+    getDocs(membersCol()),
+    getDocs(seasonsCol()),
+  ])
+  await Promise.all([
+    ...existingContestants.docs.map((d) => deleteDoc(d.ref)),
+    ...existingPredictions.docs.map((d) => deleteDoc(d.ref)),
+    ...existingMembers.docs.map((d) => deleteDoc(d.ref)),
+    ...existingSeasons.docs.map((d) => deleteDoc(d.ref)),
+  ])
+
+  const writes: Promise<void>[] = []
+
+  if (data.config) writes.push(setDoc(configRef(), data.config))
+
+  for (const c of data.contestants) {
+    writes.push(setDoc(doc(contestantsCol(), c.id), { country: c.country, appearanceOrder: c.appearanceOrder }))
+  }
+
+  for (const p of data.predictions) {
+    writes.push(setDoc(doc(predictionsCol(), p.id), { memberName: p.memberName, order: p.order, updatedAt: p.updatedAt }))
+  }
+
+  writes.push(data.result ? setDoc(resultsRef(), data.result) : deleteDoc(resultsRef()))
+
+  for (const m of data.members) {
+    const memberData: Omit<Member, 'email'> = {
+      status: m.status,
+      invitedAt: m.invitedAt,
+      invitedBy: m.invitedBy,
+      ...(m.uid ? { uid: m.uid } : {}),
+      ...(m.displayName ? { displayName: m.displayName } : {}),
+      ...(m.firstSignInAt ? { firstSignInAt: m.firstSignInAt } : {}),
+    }
+    writes.push(setDoc(doc(membersCol(), m.email), memberData))
+  }
+
+  for (const s of data.seasons) {
+    const { id, ...seasonData } = s
+    writes.push(setDoc(doc(seasonsCol(), id), seasonData))
+  }
+
+  await Promise.all(writes)
 }

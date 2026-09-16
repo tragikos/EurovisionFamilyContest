@@ -10,6 +10,7 @@ export type MembershipStatus = 'checking' | 'allowed' | 'not_invited' | 'blocked
 interface MembershipContextValue {
   status: MembershipStatus
   isAdmin: boolean
+  member: Member | null
 }
 
 const MembershipContext = createContext<MembershipContextValue | null>(null)
@@ -22,8 +23,11 @@ export function MembershipProvider({ children }: { children: ReactNode }) {
 
   const isAdmin = Boolean(user && config?.adminEmails.includes(user.email))
 
+  // Subscribed regardless of admin status: an admin may also have their own
+  // member record (e.g. from historical data import), and its status should
+  // still reflect reality even though isAdmin already grants them access below.
   useEffect(() => {
-    if (!user || isAdmin) {
+    if (!user) {
       setMember(null)
       setMemberLoaded(true)
       return
@@ -33,17 +37,18 @@ export function MembershipProvider({ children }: { children: ReactNode }) {
       setMember(next)
       setMemberLoaded(true)
     })
-  }, [user, isAdmin])
+  }, [user])
 
-  // The first time an invited person signs in, flip their invite to active.
+  // The first time an invited person signs in, flip their invite to active -
+  // including admins, so their own status dot in the invite list stops showing "invited".
   useEffect(() => {
-    if (!user || isAdmin || !member) return
+    if (!user || !member) return
     if (member.status === 'invited') {
       markMemberActive(user.email, user.uid, user.displayName).catch((error: unknown) => {
         console.error('Failed to activate membership:', error)
       })
     }
-  }, [user, isAdmin, member])
+  }, [user, member])
 
   let status: MembershipStatus = 'checking'
   if (authReady && contestReady && memberLoaded) {
@@ -58,7 +63,7 @@ export function MembershipProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  return <MembershipContext.Provider value={{ status, isAdmin }}>{children}</MembershipContext.Provider>
+  return <MembershipContext.Provider value={{ status, isAdmin, member }}>{children}</MembershipContext.Provider>
 }
 
 export function useMembership() {

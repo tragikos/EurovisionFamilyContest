@@ -42,9 +42,13 @@ service cloud.firestore {
 
     match /predictions/{predictionId} {
       allow read: if signedIn();
-      // You may only ever write your own prediction - the doc id is your uid -
-      // and only while you're an active (invited, non-blocked) participant.
-      allow create, update: if signedIn() && request.auth.uid == predictionId && isActiveParticipant();
+      // Normally you may only write your own prediction - the doc id is your
+      // uid - and only while you're an active (invited, non-blocked)
+      // participant. Admins can additionally write any prediction doc, so a
+      // backup restore (which recreates everyone's predictions under their
+      // original ids) doesn't get blocked just because the admin isn't that
+      // particular uid.
+      allow create, update: if isAdmin() || (signedIn() && request.auth.uid == predictionId && isActiveParticipant());
       allow delete: if isAdmin();
     }
 
@@ -56,7 +60,11 @@ service cloud.firestore {
     // Invite list: doc id is the invited email address.
     match /members/{email} {
       allow get: if signedIn() && (request.auth.token.email == email || isAdmin());
-      allow list: if isAdmin();
+      // Anyone signed in may list members - needed so the all-time leaderboard
+      // can resolve a consistent display name for each person across seasons
+      // (predictions/results are already readable by any signed-in user, so
+      // this doesn't widen the app's existing read posture).
+      allow list: if signedIn();
       allow create, delete: if isAdmin();
       // Admins can change anything; an invited (not yet active, not blocked)
       // user may flip their own doc from 'invited' to 'active' the first

@@ -3,6 +3,7 @@ export type VotingStatus = 'not_started' | 'open' | 'closed' | 'finalized'
 export interface ContestConfig {
   adminEmails: string[]
   votingStatus: VotingStatus
+  title?: string
 }
 
 export interface Contestant {
@@ -44,15 +45,30 @@ export interface Member {
   invitedAt: number
   invitedBy: string
   uid?: string
+  /** Their real Google account name, recorded automatically the first time they sign in. */
   displayName?: string
   firstSignInAt?: number
+  /** The name an admin chose for them - shown everywhere in place of their Google name, once set. */
+  assignedName?: string
 }
 
 /** A snapshot of one past contest, archived when the admin resets for a new season. */
 export interface Season {
   id: string
+  title: string
   archivedAt: number
   contestants: Contestant[]
   predictions: Prediction[]
   result: FinalResult | null
+}
+
+/** A full export of everything in Firestore, for manual backup/restore. */
+export interface BackupData {
+  exportedAt: number
+  config: ContestConfig | null
+  contestants: Contestant[]
+  predictions: Prediction[]
+  result: FinalResult | null
+  members: Member[]
+  seasons: Season[]
 }

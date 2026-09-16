@@ -3,12 +3,14 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useContestData } from '../context/ContestDataContext'
 import { useIsAdmin } from '../hooks/useIsAdmin'
+import { useDisplayName } from '../hooks/useDisplayName'
 import { StatusBanner } from './StatusBanner'
 
 export function Layout({ children }: { children: ReactNode }) {
   const { user, signOut } = useAuth()
   const { config } = useContestData()
   const isAdmin = useIsAdmin()
+  const displayName = useDisplayName()
   const navigate = useNavigate()
 
   async function handleLogout() {
@@ -27,18 +29,19 @@ export function Layout({ children }: { children: ReactNode }) {
           {user && (
             <>
               <span className="app-header__user">
-                {user.displayName}
+                {displayName}
                 {isAdmin ? ' (admin)' : ''}
               </span>
+              <Link to="/" className="nav-link">
+                My vote
+              </Link>
+              <Link to="/leaderboard" className="nav-link">
+                Leaderboard
+              </Link>
               {isAdmin && (
-                <>
-                  <Link to="/" className="nav-link">
-                    My vote
-                  </Link>
-                  <Link to="/admin" className="nav-link">
-                    Admin
-                  </Link>
-                </>
+                <Link to="/admin" className="nav-link">
+                  Admin
+                </Link>
               )}
               <button type="button" className="link-button" onClick={handleLogout}>
                 Log out
