@@ -17,7 +17,7 @@ export function computeStandings(predictions: Prediction[], result: FinalResult)
         score += Math.abs(actualIndex - index)
       }
     })
-    return { memberName: prediction.memberName, score }
+    return { id: prediction.id, memberName: prediction.memberName, score }
   })
 
   scored.sort((a, b) => a.score - b.score)

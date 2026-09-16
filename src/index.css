@@ -380,6 +380,45 @@ input:focus {
   background: rgba(0, 212, 255, 0.08);
 }
 
+.leaderboard-table__row {
+  cursor: pointer;
+}
+
+.leaderboard-table__row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.leaderboard-table__detail-row td {
+  padding: 0 0 1rem;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.breakdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.breakdown-table th,
+.breakdown-table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.member-history {
+  margin: 0.5rem 0 1rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--card-border);
+}
+
+.member-history__entry {
+  margin-bottom: 0.75rem;
+}
+
 .submissions-list {
   list-style: none;
   padding: 0;

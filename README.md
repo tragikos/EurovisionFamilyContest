@@ -8,16 +8,31 @@ window and enters the real result once the show is over.
 
 - Everyone signs in with their own **Google account** — no shared password to
   hand out. The first person to ever sign in becomes the first admin.
+- Only **invited** Google accounts can participate. Admins invite people by
+  email from the Admin page; an invited person is automatically activated the
+  first time they sign in. Admins can always participate too, invite list or
+  not.
 - **Admin(s)** set up the contestant countries and their running (performance)
-  order, then manually **start voting**.
-- While voting is **open**, each **family member** drags the contestants into
-  the order they predict they'll actually finish in (1st place at the top).
-  They can change their mind and resubmit as many times as they like.
+  order, then manually **start voting**. Admins can vote alongside everyone
+  else.
+- While voting is **open**, each **family member** (including admins) drags
+  the contestants into the order they predict they'll actually finish in (1st
+  place at the top). They can change their mind and resubmit as many times as
+  they like.
+- Submitted picks stay hidden from everyone, including admins, until voting
+  closes — an admin who's also playing can't peek at anyone's pick before
+  finalizing their own.
 - The admin manually **ends voting**, then enters the **actual final
   standing** once it's announced.
 - The app automatically computes each family member's score (sum of how far
   off each country's predicted position was from its real position — lower is
-  better, 0 is a perfect prediction) and shows a leaderboard.
+  better, 0 is a perfect prediction) and shows a leaderboard. Click any name
+  on the leaderboard to see their full pick and exactly how much each
+  country's placement cost them, and compare it against anyone else's.
+- Admins can see everyone they've invited, whether each person has ever
+  signed in, and can **block** someone to revoke their access without
+  deleting their history. Admins can also look back at anyone's submissions
+  from past (reset) contests.
 
 Everything updates live for everyone via Firestore, so nobody needs to
 refresh when the admin opens/closes voting or the results come in.
@@ -54,7 +69,8 @@ directly from the browser.
 6. Publish the security rules: open Firestore > Rules in the console and
    paste in the contents of `firebase/firestore.rules` (or use the Firebase
    CLI: `firebase deploy --only firestore:rules`, if you have a
-   `firebase.json` pointing at this file).
+   `firebase.json` pointing at this file). **Re-publish this file any time it
+   changes in the repo** — Firestore doesn't pick up rule changes on its own.
 
 ### 2. Install and run locally
 
@@ -67,7 +83,8 @@ Open the printed local URL and sign in with your own Google account. Since
 nobody has set up the contest yet, you'll see a **first-time setup** screen —
 continuing there makes your Google account the first admin (stored as your
 email in Firestore, in `meta/config.adminEmails`). You can add more admins
-later from the Admin page (e.g. a spouse or co-organizer).
+later from the Admin page (e.g. a spouse or co-organizer), and invite the
+rest of the family from the **Invited players** card there too.
 
 ### 3. Deploy to GitHub Pages
 
@@ -96,26 +113,32 @@ This is built for casual use by a trusted family, not a public product:
 
 - Every participant signs in with a real Google account, so
   `request.auth` in Firestore rules is a genuine per-person identity — not
-  just a formality. Rules enforce that you can only write your own
-  prediction (`request.auth.uid == predictionId`), and that only emails
-  listed in `meta/config.adminEmails` can manage contestants, voting status,
-  and results (see `firebase/firestore.rules`).
+  just a formality. Rules enforce that:
+  - you can only write your own prediction (`request.auth.uid ==
+    predictionId`), and only while your invite is active (or you're an
+    admin);
+  - only emails listed in `meta/config.adminEmails` can manage contestants,
+    voting status, results, and the invite list;
+  - an invited person can flip their own invite from `invited` to `active`
+    the first time they sign in, and nothing else — so a blocked account
+    (status `blocked`, not `invited`) can never self-reactivate.
+  (See `firebase/firestore.rules` for the exact rules.)
 - The one soft spot is bootstrapping: the `meta/config` document can be
   *created* by anyone signed in (so the first visitor can become the first
   admin) but only *updated* by an existing admin afterwards. In practice this
   means whoever opens the freshly-deployed link first claims admin — so set
   it up yourself before sharing the link with the family.
-- Anyone with a Google account can sign in and submit a prediction under
-  their own name; there's no invite-only allowlist of family members. That's
-  fine for a link only your family has, but don't post it publicly.
+- Only people an admin has invited (by email) can submit predictions; anyone
+  else who signs in sees a "not invited" screen and can't participate.
 
 ## Project structure
 
 ```
 src/
   components/     Reusable UI (drag-and-drop list, layout, leaderboard, ...)
-  context/        Auth (Google sign-in state) and live Firestore data
-  hooks/          useIsAdmin (checks the signed-in email against adminEmails)
+  context/        Auth (Google sign-in), membership (invite/admin status),
+                   and live Firestore data
+  hooks/          useIsAdmin
   pages/          Login/setup, family member voting page, admin page
   services/       Firestore reads/writes, scoring algorithm
 firebase/
@@ -126,6 +149,9 @@ firebase/
 ## Resetting for next year
 
 The admin page has a "danger zone" with a **Reset contest** button that clears
-all predictions and the final result (optionally the contestant list too) and
-puts voting back to "not started", so the same deployment can be reused for
-next year's contest. The admin list is left untouched.
+all current predictions and the final result (optionally the contestant list
+too) and puts voting back to "not started", so the same deployment can be
+reused for next year's contest. Before clearing anything, it archives the
+current contestants, predictions, and result as a "season" snapshot — that's
+what powers the past-submissions history on each invited player's row in the
+Admin page. The invite list and admin list are left untouched by a reset.

@@ -2,6 +2,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   orderBy,
@@ -11,7 +12,15 @@ import {
 } from 'firebase/firestore'
 import type { FirestoreError } from 'firebase/firestore'
 import { db } from '../firebase'
-import type { Contestant, ContestConfig, FinalResult, Prediction, VotingStatus } from '../types'
+import type {
+  Contestant,
+  ContestConfig,
+  FinalResult,
+  Member,
+  Prediction,
+  Season,
+  VotingStatus,
+} from '../types'
 
 // Refs are resolved lazily (not at module load) because `db` is null until
 // Firebase env vars are configured - these functions are only ever called
@@ -25,6 +34,8 @@ const configRef = () => doc(requireDb(), 'meta', 'config')
 const resultsRef = () => doc(requireDb(), 'results', 'final')
 const contestantsCol = () => collection(requireDb(), 'contestants')
 const predictionsCol = () => collection(requireDb(), 'predictions')
+const membersCol = () => collection(requireDb(), 'members')
+const seasonsCol = () => collection(requireDb(), 'seasons')
 
 export function slugify(value: string): string {
   return (
@@ -136,15 +147,79 @@ export async function saveFinalResult(order: string[]) {
   await updateDoc(configRef(), { votingStatus: 'finalized' satisfies VotingStatus })
 }
 
+/**
+ * Archives the current contestants/predictions/result as a season snapshot
+ * before wiping them, so admins can still look back at everyone's past
+ * submissions after the contest is reset for a new year.
+ */
 export async function resetContest(options: { clearContestants: boolean }) {
-  const predictionDocs = await getDocs(predictionsCol())
+  const [contestantDocs, predictionDocs, resultSnap] = await Promise.all([
+    getDocs(contestantsCol()),
+    getDocs(predictionsCol()),
+    getDoc(resultsRef()),
+  ])
+
+  const season: Omit<Season, 'id'> = {
+    archivedAt: Date.now(),
+    contestants: contestantDocs.docs.map((d) => ({ id: d.id, ...d.data() }) as Contestant),
+    predictions: predictionDocs.docs.map((d) => ({ id: d.id, ...d.data() }) as Prediction),
+    result: resultSnap.exists() ? (resultSnap.data() as FinalResult) : null,
+  }
+  await setDoc(doc(seasonsCol(), String(season.archivedAt)), season)
+
   await Promise.all(predictionDocs.docs.map((d) => deleteDoc(d.ref)))
   await deleteDoc(resultsRef())
 
   if (options.clearContestants) {
-    const contestantDocs = await getDocs(contestantsCol())
     await Promise.all(contestantDocs.docs.map((d) => deleteDoc(d.ref)))
   }
 
   await updateDoc(configRef(), { votingStatus: 'not_started' satisfies VotingStatus })
+}
+
+export async function getSeasons(): Promise<Season[]> {
+  const seasonsQuery = query(seasonsCol(), orderBy('archivedAt', 'desc'))
+  const snapshot = await getDocs(seasonsQuery)
+  return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as Season)
+}
+
+export function subscribeMembers(callback: (members: Member[]) => void) {
+  return onSnapshot(
+    membersCol(),
+    (snapshot) => callback(snapshot.docs.map((d) => ({ email: d.id, ...d.data() }) as Member)),
+    logSnapshotError('members'),
+  )
+}
+
+export function subscribeMember(email: string, callback: (member: Member | null) => void) {
+  return onSnapshot(
+    doc(membersCol(), email),
+    (snapshot) => callback(snapshot.exists() ? ({ email: snapshot.id, ...snapshot.data() } as Member) : null),
+    logSnapshotError('member'),
+  )
+}
+
+/** Invites a new player by email. No-ops if that email is already invited/active/blocked. */
+export async function inviteMember(email: string, invitedBy: string): Promise<boolean> {
+  const id = email.trim().toLowerCase()
+  const ref = doc(membersCol(), id)
+  const existing = await getDoc(ref)
+  if (existing.exists()) return false
+  const member: Omit<Member, 'email'> = { status: 'invited', invitedAt: Date.now(), invitedBy }
+  await setDoc(ref, member)
+  return true
+}
+
+export async function setMemberBlocked(email: string, blocked: boolean) {
+  await updateDoc(doc(membersCol(), email), { status: blocked ? 'blocked' : 'active' })
+}
+
+/** Called by the signed-in user themselves the first time they log in, flipping their own invite to active. */
+export async function markMemberActive(email: string, uid: string, displayName: string) {
+  await updateDoc(doc(membersCol(), email), {
+    status: 'active' satisfies Member['status'],
+    uid,
+    displayName,
+    firstSignInAt: Date.now(),
+  })
 }

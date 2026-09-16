@@ -2,14 +2,20 @@ import { useEffect, useState } from 'react'
 import { useContestData } from '../context/ContestDataContext'
 import { useAuth } from '../context/AuthContext'
 import { SortableList } from '../components/SortableList'
+import { PredictionOrderList } from '../components/PredictionOrderList'
+import { computeStandings } from '../services/scoring'
 import {
+  getSeasons,
+  inviteMember,
   resetContest,
   saveContestants,
   saveFinalResult,
   setAdminEmails,
+  setMemberBlocked,
   setVotingStatus,
+  subscribeMembers,
 } from '../services/firestoreService'
-import type { Contestant, VotingStatus } from '../types'
+import type { Contestant, Member, Prediction, Season, VotingStatus } from '../types'
 
 export function AdminPage() {
   const { ready, config, contestants, predictions } = useContestData()
@@ -20,8 +26,9 @@ export function AdminPage() {
     <div className="admin-page">
       <ContestControlCard status={config.votingStatus} hasContestants={contestants.length > 0} />
       <ContestantsCard contestants={contestants} votingStatus={config.votingStatus} />
-      <SubmissionsCard predictions={predictions} />
+      <SubmissionsCard predictions={predictions} contestants={contestants} votingStatus={config.votingStatus} />
       {config.votingStatus === 'closed' && <FinalStandingCard contestants={contestants} />}
+      <InvitesCard />
       <AdminsCard adminEmails={config.adminEmails} />
       <DangerZoneCard />
     </div>
@@ -164,16 +171,42 @@ function ContestantsCard({
   )
 }
 
-function SubmissionsCard({ predictions }: { predictions: { memberName: string; updatedAt: number }[] }) {
+function SubmissionsCard({
+  predictions,
+  contestants,
+  votingStatus,
+}: {
+  predictions: Prediction[]
+  contestants: Contestant[]
+  votingStatus: VotingStatus
+}) {
+  // Picks stay hidden (name + time only) while voting is still open, even
+  // from admins, so an admin who's also playing can't peek at everyone
+  // else's picks before adjusting their own.
+  const revealPicks = votingStatus !== 'open'
+
   return (
     <div className="card">
       <h2>Submissions ({predictions.length})</h2>
+      {!revealPicks && (
+        <p className="hint-text">Picks stay hidden until voting closes, even from admins.</p>
+      )}
       {predictions.length === 0 ? (
         <p className="hint-text">Nobody has submitted a prediction yet.</p>
+      ) : revealPicks ? (
+        <ul className="submissions-list">
+          {predictions.map((p) => (
+            <li key={p.id}>
+              <strong>{p.memberName}</strong>{' '}
+              <span className="hint-text">— saved {new Date(p.updatedAt).toLocaleString()}</span>
+              <PredictionOrderList contestants={contestants} order={p.order} />
+            </li>
+          ))}
+        </ul>
       ) : (
         <ul className="submissions-list">
           {predictions.map((p) => (
-            <li key={p.memberName}>
+            <li key={p.id}>
               {p.memberName} — <span className="hint-text">{new Date(p.updatedAt).toLocaleString()}</span>
             </li>
           ))}
@@ -219,6 +252,148 @@ function FinalStandingCard({ contestants }: { contestants: Contestant[] }) {
           {saving ? 'Saving…' : 'Finalize results'}
         </button>
       </div>
+    </div>
+  )
+}
+
+function InvitesCard() {
+  const { user } = useAuth()
+  const [members, setMembers] = useState<Member[]>([])
+  const [newEmail, setNewEmail] = useState('')
+  const [inviting, setInviting] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const [expandedEmail, setExpandedEmail] = useState<string | null>(null)
+  const [seasons, setSeasons] = useState<Season[] | null>(null)
+  const [loadingSeasons, setLoadingSeasons] = useState(false)
+
+  useEffect(() => subscribeMembers(setMembers), [])
+
+  async function handleInvite() {
+    const email = newEmail.trim().toLowerCase()
+    if (!email || !user) return
+    setInviting(true)
+    setMessage(null)
+    try {
+      const created = await inviteMember(email, user.email)
+      setMessage(created ? `Invited ${email}.` : `${email} was already invited.`)
+      setNewEmail('')
+    } finally {
+      setInviting(false)
+    }
+  }
+
+  async function toggleExpand(email: string) {
+    if (expandedEmail === email) {
+      setExpandedEmail(null)
+      return
+    }
+    if (!seasons) {
+      setLoadingSeasons(true)
+      try {
+        setSeasons(await getSeasons())
+      } finally {
+        setLoadingSeasons(false)
+      }
+    }
+    setExpandedEmail(email)
+  }
+
+  function statusLabel(member: Member): string {
+    if (member.status === 'blocked') return 'Blocked'
+    if (member.status === 'invited') return 'Invited — hasn’t signed in yet'
+    return `Active — first signed in ${member.firstSignInAt ? new Date(member.firstSignInAt).toLocaleDateString() : ''}`
+  }
+
+  const sorted = [...members].sort((a, b) => a.email.localeCompare(b.email))
+
+  return (
+    <div className="card">
+      <h2>Invited players</h2>
+      <p className="hint-text">
+        Only invited Google accounts can vote (admins can always vote regardless of this list). Block a player to
+        revoke their access without deleting their history.
+      </p>
+      {sorted.length === 0 ? (
+        <p className="hint-text">Nobody has been invited yet.</p>
+      ) : (
+        <ul className="submissions-list">
+          {sorted.map((member) => (
+            <li key={member.email}>
+              <div className="admin-email-row">
+                <button type="button" className="link-button" onClick={() => toggleExpand(member.email)}>
+                  {member.email}
+                </button>
+                <span className="hint-text">{statusLabel(member)}</span>
+                <button
+                  type="button"
+                  className={member.status === 'blocked' ? 'link-button' : 'link-button link-button--danger'}
+                  onClick={() => setMemberBlocked(member.email, member.status !== 'blocked')}
+                >
+                  {member.status === 'blocked' ? 'Unblock' : 'Block'}
+                </button>
+              </div>
+              <p className="hint-text">
+                Invited by {member.invitedBy} on {new Date(member.invitedAt).toLocaleDateString()}
+              </p>
+              {expandedEmail === member.email && (
+                <div className="member-history">
+                  {loadingSeasons ? (
+                    <p className="hint-text">Loading past submissions…</p>
+                  ) : (
+                    <MemberPastSubmissions member={member} seasons={seasons ?? []} />
+                  )}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="form-actions">
+        <input
+          className="admin-email-input"
+          value={newEmail}
+          placeholder="name@gmail.com"
+          onChange={(e) => setNewEmail(e.target.value)}
+        />
+        <button type="button" className="primary-button" onClick={handleInvite} disabled={inviting}>
+          {inviting ? 'Inviting…' : '+ Invite player'}
+        </button>
+        {message && <span className="hint-text">{message}</span>}
+      </div>
+    </div>
+  )
+}
+
+/** Past (archived) submissions only - never the current round, so this can never leak an in-progress vote. */
+function MemberPastSubmissions({ member, seasons }: { member: Member; seasons: Season[] }) {
+  if (!member.uid) {
+    return <p className="hint-text">No past submissions.</p>
+  }
+
+  const entries = seasons
+    .map((season) => {
+      const prediction = season.predictions.find((p) => p.id === member.uid)
+      if (!prediction) return null
+      const score = season.result ? computeStandings([prediction], season.result)[0].score : null
+      return { season, prediction, score }
+    })
+    .filter((entry): entry is { season: Season; prediction: Prediction; score: number | null } => !!entry)
+
+  if (entries.length === 0) {
+    return <p className="hint-text">No past submissions.</p>
+  }
+
+  return (
+    <div>
+      {entries.map(({ season, prediction, score }) => (
+        <div key={season.id} className="member-history__entry">
+          <p className="hint-text">
+            {new Date(season.archivedAt).toLocaleDateString()}
+            {score !== null ? ` — score ${score}` : ' — not finalized'}
+          </p>
+          <PredictionOrderList contestants={season.contestants} order={prediction.order} />
+        </div>
+      ))}
     </div>
   )
 }

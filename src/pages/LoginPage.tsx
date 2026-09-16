@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useContestData } from '../context/ContestDataContext'
+import { useMembership } from '../context/MembershipContext'
 import { createConfig } from '../services/firestoreService'
 
 function GoogleIcon() {
@@ -25,8 +26,9 @@ function GoogleIcon() {
 }
 
 export function LoginPage() {
-  const { user, authReady, signIn } = useAuth()
+  const { user, authReady, signIn, signOut } = useAuth()
   const { ready, error, config } = useContestData()
+  const { status } = useMembership()
   const [signingIn, setSigningIn] = useState(false)
   const [signInError, setSignInError] = useState<string | null>(null)
 
@@ -76,6 +78,43 @@ export function LoginPage() {
 
   if (!config) {
     return <BootstrapAdmin email={user.email} />
+  }
+
+  if (status === 'checking') {
+    return (
+      <div className="auth-card">
+        <p>Checking your invite…</p>
+      </div>
+    )
+  }
+
+  if (status === 'not_invited') {
+    return (
+      <div className="auth-card">
+        <h1>Not invited yet</h1>
+        <p>
+          <strong>{user.email}</strong> hasn't been invited to this contest. Ask the admin to invite this Google
+          account, or sign out and try a different one.
+        </p>
+        <button type="button" className="secondary-button" onClick={() => signOut()}>
+          Sign out
+        </button>
+      </div>
+    )
+  }
+
+  if (status === 'blocked') {
+    return (
+      <div className="auth-card">
+        <h1>Access revoked</h1>
+        <p>
+          An admin has blocked <strong>{user.email}</strong> from participating in this contest.
+        </p>
+        <button type="button" className="secondary-button" onClick={() => signOut()}>
+          Sign out
+        </button>
+      </div>
+    )
   }
 
   return <Navigate to="/" replace />

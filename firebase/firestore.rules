@@ -16,6 +16,16 @@ service cloud.firestore {
           get(/databases/$(database)/documents/meta/config).data.adminEmails;
     }
 
+    // Admins always count as participants (so they can vote too); everyone
+    // else needs an invite that hasn't been blocked.
+    function isActiveParticipant() {
+      return isAdmin() || (
+        signedIn() &&
+        exists(/databases/$(database)/documents/members/$(request.auth.token.email)) &&
+        get(/databases/$(database)/documents/members/$(request.auth.token.email)).data.status == 'active'
+      );
+    }
+
     match /meta/config {
       allow read: if signedIn();
       // Anyone signed in may create the config doc if it doesn't exist yet
@@ -32,12 +42,38 @@ service cloud.firestore {
 
     match /predictions/{predictionId} {
       allow read: if signedIn();
-      // You may only ever write your own prediction - the doc id is your uid.
-      allow create, update: if signedIn() && request.auth.uid == predictionId;
+      // You may only ever write your own prediction - the doc id is your uid -
+      // and only while you're an active (invited, non-blocked) participant.
+      allow create, update: if signedIn() && request.auth.uid == predictionId && isActiveParticipant();
       allow delete: if isAdmin();
     }
 
     match /results/{resultId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // Invite list: doc id is the invited email address.
+    match /members/{email} {
+      allow get: if signedIn() && (request.auth.token.email == email || isAdmin());
+      allow list: if isAdmin();
+      allow create, delete: if isAdmin();
+      // Admins can change anything; an invited (not yet active, not blocked)
+      // user may flip their own doc from 'invited' to 'active' the first
+      // time they sign in - and nothing else, so a blocked user (whose
+      // status is 'blocked', not 'invited') can never self-reactivate.
+      allow update: if isAdmin() || (
+        signedIn() &&
+        request.auth.token.email == email &&
+        resource.data.status == 'invited' &&
+        request.resource.data.status == 'active' &&
+        request.resource.data.email == resource.data.email
+      );
+    }
+
+    // Archived snapshots of past contests, written when an admin resets for
+    // a new season, so past submissions remain visible afterwards.
+    match /seasons/{seasonId} {
       allow read: if signedIn();
       allow write: if isAdmin();
     }

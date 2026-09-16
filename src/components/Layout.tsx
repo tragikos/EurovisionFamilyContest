@@ -31,9 +31,14 @@ export function Layout({ children }: { children: ReactNode }) {
                 {isAdmin ? ' (admin)' : ''}
               </span>
               {isAdmin && (
-                <Link to="/admin" className="nav-link">
-                  Admin
-                </Link>
+                <>
+                  <Link to="/" className="nav-link">
+                    My vote
+                  </Link>
+                  <Link to="/admin" className="nav-link">
+                    Admin
+                  </Link>
+                </>
               )}
               <button type="button" className="link-button" onClick={handleLogout}>
                 Log out

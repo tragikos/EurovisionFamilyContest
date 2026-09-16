@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useContestData } from '../context/ContestDataContext'
 import { useAuth } from '../context/AuthContext'
+import { useIsAdmin } from '../hooks/useIsAdmin'
 import { SortableList } from '../components/SortableList'
 import { Leaderboard } from '../components/Leaderboard'
+import { PredictionOrderList } from '../components/PredictionOrderList'
 import { submitPrediction } from '../services/firestoreService'
 import type { Contestant } from '../types'
 
 export function VotePage() {
   const { ready, config, contestants, predictions, result } = useContestData()
   const { user } = useAuth()
+  const isAdmin = useIsAdmin()
 
   const myPrediction = user ? predictions.find((p) => p.id === user.uid) : undefined
 
@@ -35,7 +39,14 @@ export function VotePage() {
     return (
       <div className="card">
         <h1>Welcome, {user.displayName}!</h1>
-        <p>The admin hasn't added any contestants yet. Check back soon.</p>
+        {isAdmin ? (
+          <p>
+            Nobody has added contestants yet. Head to the <Link to="/admin">Admin</Link> page to set them up and
+            start voting.
+          </p>
+        ) : (
+          <p>The admin hasn't added any contestants yet. Check back soon.</p>
+        )}
       </div>
     )
   }
@@ -44,12 +55,7 @@ export function VotePage() {
     return (
       <div className="card">
         <h1>🎉 The results are in!</h1>
-        <Leaderboard
-          contestants={contestants}
-          predictions={predictions}
-          result={result}
-          highlightMemberName={user.displayName}
-        />
+        <Leaderboard contestants={contestants} predictions={predictions} result={result} currentUserId={user.uid} />
       </div>
     )
   }
@@ -75,11 +81,7 @@ export function VotePage() {
       <div className="card">
         <h1>Voting is closed</h1>
         <p>Waiting for the admin to enter the final results. Here's the order you predicted:</p>
-        <ol className="final-order-list">
-          {order.map((c) => (
-            <li key={c.id}>{c.country}</li>
-          ))}
-        </ol>
+        <PredictionOrderList contestants={contestants} order={order.map((c) => c.id)} />
       </div>
     )
   }
