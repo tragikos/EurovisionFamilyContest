@@ -129,6 +129,11 @@ function ContestControlCard({
         Contest title
         <div className="form-actions">
           <input
+            autoComplete="off"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-bwignore="true"
+            data-form-type="other"
             className="admin-email-input"
             value={titleInput}
             placeholder="e.g. Eurovision Final 2027"
@@ -248,6 +253,11 @@ function ContestantsCard({
             <span className="sortable-row__rank">{index + 1}</span>
             <span className="sortable-row__handle">⠿</span>
             <input
+              autoComplete="off"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-form-type="other"
               className="sortable-row__input"
               value={row.country}
               placeholder="Country name"
@@ -310,6 +320,11 @@ function SubmissionsCard({
         <>
           {predictions.length > 6 && (
             <input
+              autoComplete="off"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-form-type="other"
               className="admin-email-input"
               value={query}
               placeholder="Filter by name…"
@@ -524,6 +539,11 @@ function InvitesCard() {
                 {editingEmail === member.email ? (
                   <>
                     <input
+                      autoComplete="off"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-bwignore="true"
+                      data-form-type="other"
                       className="invite-row__name-input"
                       value={editingName}
                       placeholder={member.email}
@@ -604,12 +624,22 @@ function InvitesCard() {
       )}
       <div className="form-actions">
         <input
+          autoComplete="off"
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-bwignore="true"
+          data-form-type="other"
           className="admin-email-input"
           value={newEmail}
           placeholder="name@gmail.com"
           onChange={(e) => setNewEmail(e.target.value)}
         />
         <input
+          autoComplete="off"
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-bwignore="true"
+          data-form-type="other"
           className="admin-email-input"
           value={newName}
           placeholder="Display name (optional)"
@@ -847,6 +877,11 @@ function AdminsCard({ adminEmails }: { adminEmails: string[] }) {
       </ul>
       <div className="form-actions">
         <input
+          autoComplete="off"
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-bwignore="true"
+          data-form-type="other"
           className="admin-email-input"
           value={newEmail}
           placeholder="name@gmail.com"
@@ -990,6 +1025,11 @@ function DangerZoneCard({ title, votingStatus }: { title: string; votingStatus: 
           <p>Start a new contest (e.g. next year). This clears all family predictions and the final result.</p>
           <label className="checkbox-label">
             <input
+              autoComplete="off"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-form-type="other"
               type="checkbox"
               checked={clearContestants}
               onChange={(e) => setClearContestants(e.target.checked)}

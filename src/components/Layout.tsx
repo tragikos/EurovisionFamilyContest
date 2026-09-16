@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { useContestData } from '../context/ContestDataContext'
 import { useIsAdmin } from '../hooks/useIsAdmin'
 import { useDisplayName } from '../hooks/useDisplayName'
+import { useTheme } from '../context/ThemeContext'
 import { StatusBanner } from './StatusBanner'
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -12,6 +13,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const { config } = useContestData()
   const isAdmin = useIsAdmin()
   const displayName = useDisplayName()
+  const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -28,27 +30,32 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <div className="app-header__bar">
-          <Link to="/" className="app-title" onClick={closeMenu}>
-            🇪🇺 Eurovision Family Contest
-          </Link>
-          <div className="app-header__bar-right">
-            {config && <StatusBanner status={config.votingStatus} />}
-            {user && (
-              <button
-                type="button"
-                className="menu-toggle"
-                aria-label={menuOpen ? 'Close menu' : 'Open menu'}
-                aria-expanded={menuOpen}
-                onClick={() => setMenuOpen((o) => !o)}
-              >
-                {menuOpen ? '✕' : '☰'}
-              </button>
-            )}
-          </div>
-        </div>
+        <Link to="/" className="app-title" onClick={closeMenu}>
+          🇪🇺 Eurovision Family Contest
+        </Link>
+        {config && <StatusBanner status={config.votingStatus} />}
+        <button
+          type="button"
+          className="theme-toggle"
+          aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          onClick={toggleTheme}
+        >
+          {theme === 'dark' ? '🌙' : '☀️'}
+        </button>
         {user && (
-          <div className={`app-header__nav${menuOpen ? ' app-header__nav--open' : ''}`}>
+          <button
+            type="button"
+            className="menu-toggle"
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((o) => !o)}
+          >
+            {menuOpen ? '✕' : '☰'}
+          </button>
+        )}
+        {user && (
+          <nav className={`app-header__nav${menuOpen ? ' app-header__nav--open' : ''}`}>
             <span className="app-header__user">
               {displayName}
               {isAdmin ? ' (admin)' : ''}
@@ -67,7 +74,7 @@ export function Layout({ children }: { children: ReactNode }) {
             <button type="button" className="link-button" onClick={handleLogout}>
               Log out
             </button>
-          </div>
+          </nav>
         )}
       </header>
       <main className="app-main">{children}</main>
