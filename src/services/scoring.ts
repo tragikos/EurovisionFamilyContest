@@ -7,6 +7,8 @@ export interface OverallStanding {
   bestScore: number
   averageScore: number
   points: number
+  /** Fixed championship placement by points (ties share a rank), independent of whatever column the table is currently sorted by. */
+  rank: number
 }
 
 /** F1-style points per finishing position: 25-18-15-12-10-8-6-4-2-1, then nothing. */
@@ -20,19 +22,29 @@ export function pointsForRank(rank: number): number {
  * Score = sum of |predicted position - actual position| across every
  * contestant, so lower is better (0 = predicted the final standing exactly).
  * Ties in score share the same rank (competition ranking: 1, 1, 3).
+ *
+ * A contestant id that doesn't appear in the real result (a stale prediction
+ * referencing a country that's since been renamed/removed, or a truncated/
+ * malformed one) is charged `result.order.length` - strictly more than the
+ * worst possible honest distance - instead of being silently skipped, so a
+ * broken prediction always scores worse than every genuine one rather than
+ * better. The same penalty applies per contestant the prediction is missing
+ * entirely.
  */
 export function computeStandings(predictions: Prediction[], result: FinalResult): StandingEntry[] {
   const actualPosition = new Map<string, number>()
   result.order.forEach((contestantId, index) => actualPosition.set(contestantId, index))
+  const maxPenalty = result.order.length
 
   const scored = predictions.map((prediction) => {
     let score = 0
     prediction.order.forEach((contestantId, index) => {
       const actualIndex = actualPosition.get(contestantId)
-      if (actualIndex !== undefined) {
-        score += Math.abs(actualIndex - index)
-      }
+      score += actualIndex !== undefined ? Math.abs(actualIndex - index) : maxPenalty
     })
+    const predictedIds = new Set(prediction.order)
+    const missingCount = result.order.filter((id) => !predictedIds.has(id)).length
+    score += missingCount * maxPenalty
     return { id: prediction.id, memberName: prediction.memberName, score }
   })
 
@@ -78,7 +90,7 @@ export function computeOverallStandings(rounds: { predictions: Prediction[]; res
     }
   }
 
-  return Array.from(byName.entries())
+  const unranked = Array.from(byName.entries())
     .map(([memberName, v]) => ({
       memberName,
       contests: v.contests,
@@ -88,4 +100,16 @@ export function computeOverallStandings(rounds: { predictions: Prediction[]; res
       points: v.points,
     }))
     .sort((a, b) => b.points - a.points)
+
+  const standings: OverallStanding[] = []
+  let rank = 0
+  let previousPoints: number | null = null
+  unranked.forEach((entry, index) => {
+    if (previousPoints === null || entry.points !== previousPoints) {
+      rank = index + 1
+      previousPoints = entry.points
+    }
+    standings.push({ ...entry, rank })
+  })
+  return standings
 }

@@ -115,8 +115,14 @@ export function VotePage() {
       <div className="card">
         {contestTitle}
         <h1>Voting is closed</h1>
-        <p>Waiting for the admin to enter the final results. Here's the order you predicted:</p>
-        <PredictionOrderList contestants={contestants} order={order.map((c) => c.id)} />
+        {myPrediction ? (
+          <>
+            <p>Waiting for the admin to enter the final results. Here's the order you predicted:</p>
+            <PredictionOrderList contestants={contestants} order={order.map((c) => c.id)} />
+          </>
+        ) : (
+          <p>Waiting for the admin to enter the final results. You didn't submit a prediction before voting closed.</p>
+        )}
       </div>
     )
   } else {

@@ -139,11 +139,11 @@ export function OverallLeaderboardPage() {
             </tr>
           </thead>
           <tbody>
-            {standings.map((s, index) => (
+            {standings.map((s) => (
               <tr key={s.memberName}>
                 <td>
-                  {medalEmoji(index + 1)}
-                  {index + 1}
+                  {medalEmoji(s.rank)}
+                  {s.rank}
                 </td>
                 <td>{s.memberName}</td>
                 <td>{s.points}</td>

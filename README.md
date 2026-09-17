@@ -118,27 +118,53 @@ var).
 
 ## Security model (read this)
 
-This is built for casual use by a trusted family, not a public product:
+This is built for casual use by a trusted family, not a public product, but
+picks are still meant to be locked at a point in time — so the rules enforce
+that server-side, not just in the UI:
 
 - Every participant signs in with a real Google account, so
   `request.auth` in Firestore rules is a genuine per-person identity — not
   just a formality. Rules enforce that:
   - you can only write your own prediction (`request.auth.uid ==
-    predictionId`), and only while your invite is active (or you're an
-    admin);
+    predictionId`), only while your invite is active (or you're an admin),
+    **and only while voting is actually open** — once the admin ends voting,
+    nobody (other than an admin, e.g. restoring a backup) can create or
+    change a prediction doc anymore, even via devtools;
+  - a submitted prediction's `memberName` must match your admin-assigned name
+    or real Google name — you can't write a pick under someone else's name;
+  - everyone's picks (and the final result) are only *readable* by other
+    participants once voting is no longer open — while it's open, you can
+    only read your own, so there's nothing to peek at even by inspecting
+    network traffic;
+  - only active participants (invited-and-not-blocked, or admins) can read
+    the contestant list, predictions, results, or past-season archives at
+    all — a Google account that was never invited can't enumerate any of it,
+    only see a "not invited" screen;
   - only emails listed in `meta/config.adminEmails` can manage contestants,
     voting status, results, and the invite list;
   - an invited person can flip their own invite from `invited` to `active`
-    the first time they sign in, and nothing else — so a blocked account
-    (status `blocked`, not `invited`) can never self-reactivate.
+    the first time they sign in, and nothing else about their own member
+    record — so a blocked account (status `blocked`, not `invited`) can
+    never self-reactivate, and an active one can't smuggle in changes to
+    other fields while doing so.
   (See `firebase/firestore.rules` for the exact rules.)
 - The one soft spot is bootstrapping: the `meta/config` document can be
   *created* by anyone signed in (so the first visitor can become the first
   admin) but only *updated* by an existing admin afterwards. In practice this
   means whoever opens the freshly-deployed link first claims admin — so set
-  it up yourself before sharing the link with the family.
+  it up yourself before sharing the link with the family. `meta/config`
+  itself (admin emails, voting status, title) stays readable by any signed-in
+  account, since the app needs it to even tell someone they're not invited.
 - Only people an admin has invited (by email) can submit predictions; anyone
   else who signs in sees a "not invited" screen and can't participate.
+- The admin list can never be emptied out from the UI, and you can't remove
+  your own admin access from the Admins card — `meta/config` can only be
+  *updated* by an existing admin and has no delete rule, so a sole admin
+  locking themselves out would need the Firebase console to recover.
+- **Whenever `firebase/firestore.rules` changes in this repo (as it has
+  changed alongside these notes), re-publish it in the Firebase console** —
+  Firestore doesn't pick up rule changes on its own, so a `git pull` alone
+  doesn't update your live project's actual security posture.
 
 ## Project structure
 

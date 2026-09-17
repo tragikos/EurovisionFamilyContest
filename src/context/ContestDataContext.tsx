@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext'
 import {
   subscribeConfig,
   subscribeContestants,
+  subscribeOwnPrediction,
   subscribePredictions,
   subscribeResult,
 } from '../services/firestoreService'
@@ -47,13 +48,26 @@ export function ContestDataProvider({ children }: { children: ReactNode }) {
     const unsubscribers = [
       subscribeConfig(setConfig),
       subscribeContestants(setContestants),
-      subscribePredictions(setPredictions),
       subscribeResult(setResult),
     ]
     setReady(true)
 
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
   }, [authReady, user])
+
+  // Predictions are subscribed separately from the rest: the security rules
+  // only let you list everyone's picks once voting is no longer open (or
+  // you're an admin) - before that, all you can read is your own, via a
+  // single-doc subscription instead of a collection listener.
+  useEffect(() => {
+    if (!user || !config) {
+      setPredictions([])
+      return
+    }
+    const isAdmin = config.adminEmails.includes(user.email)
+    const revealed = config.votingStatus !== 'open'
+    return isAdmin || revealed ? subscribePredictions(setPredictions) : subscribeOwnPrediction(user.uid, setPredictions)
+  }, [user, config])
 
   const value: ContestDataValue = { ready, error, config, contestants, predictions, result }
 

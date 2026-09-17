@@ -6,15 +6,28 @@ import { medalEmoji } from '../utils/medal'
 /**
  * Mirrors the original spreadsheet's conditional formatting (a white-to-color
  * scale per column, scaled to that column's own min/max) - adapted for this
- * app's dark theme by blending toward the card background instead of white,
- * so low-magnitude cells stay unobtrusive and high-magnitude ones stand out.
+ * app's theming by blending toward the card background instead of white, so
+ * low-magnitude cells stay unobtrusive and high-magnitude ones stand out.
  */
-function magnitudeColor(value: number, min: number, max: number, targetRgb: [number, number, number]): string {
+function magnitudeColor(
+  value: number,
+  min: number,
+  max: number,
+  targetRgb: [number, number, number],
+  baseRgb: [number, number, number],
+): string {
   if (max === min) return 'transparent'
   const t = (value - min) / (max - min)
-  const base: [number, number, number] = [36, 18, 63] // --card-bg
-  const [r, g, b] = base.map((c, i) => Math.round(c + (targetRgb[i] - c) * t))
+  const [r, g, b] = baseRgb.map((c, i) => Math.round(c + (targetRgb[i] - c) * t))
   return `rgb(${r}, ${g}, ${b})`
+}
+
+/** Reads the theme's actual --card-bg (light or dark) instead of assuming which one is active. */
+function cardBgRgb(): [number, number, number] {
+  const hex = getComputedStyle(document.documentElement).getPropertyValue('--card-bg').trim() || '#24123f'
+  const clean = hex.replace('#', '')
+  const value = parseInt(clean, 16)
+  return [(value >> 16) & 255, (value >> 8) & 255, value & 255]
 }
 
 const SCORE_TARGET: [number, number, number] = [122, 53, 53] // muted red, echoing the sheet's total-row red
@@ -46,6 +59,7 @@ export function Leaderboard({
   const scores = standings.map((s) => s.score)
   const minScore = Math.min(...scores)
   const maxScore = Math.max(...scores)
+  const cardBg = cardBgRgb()
 
   return (
     <div className="leaderboard">
@@ -94,7 +108,7 @@ export function Leaderboard({
                         {isMe ? ' (you)' : ''}
                       </td>
                       <td>{pointsForRank(entry.rank)}</td>
-                      <td style={{ background: magnitudeColor(entry.score, minScore, maxScore, SCORE_TARGET) }}>
+                      <td style={{ background: magnitudeColor(entry.score, minScore, maxScore, SCORE_TARGET, cardBg) }}>
                         {entry.score}
                       </td>
                     </tr>
@@ -142,6 +156,7 @@ function PredictionBreakdown({
   const costs = rows.map((r) => r.cost).filter((c): c is number => c !== null)
   const minCost = costs.length ? Math.min(...costs) : 0
   const maxCost = costs.length ? Math.max(...costs) : 0
+  const cardBg = cardBgRgb()
 
   return (
     <div className="table-scroll">
@@ -163,7 +178,7 @@ function PredictionBreakdown({
               <td
                 style={
                   row.cost !== null
-                    ? { background: magnitudeColor(row.cost, minCost, maxCost, COST_TARGET) }
+                    ? { background: magnitudeColor(row.cost, minCost, maxCost, COST_TARGET, cardBg) }
                     : undefined
                 }
               >

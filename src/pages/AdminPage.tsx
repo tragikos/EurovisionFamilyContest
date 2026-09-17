@@ -833,6 +833,11 @@ function AdminsCard({ adminEmails }: { adminEmails: string[] }) {
   }
 
   function removeEmail(email: string) {
+    // Blocked in the UI (not just discouraged): removing your own admin
+    // access here has no "undo" button - meta/config can only be updated by
+    // an existing admin, so a sole admin locking themselves out is
+    // unrecoverable without going into the Firebase console directly.
+    if (email === user?.email) return
     setEmails((prev) => prev.filter((e) => e !== email))
   }
 
@@ -870,7 +875,13 @@ function AdminsCard({ adminEmails }: { adminEmails: string[] }) {
               {email}
               {user?.email === email && <span className="hint-text"> (you)</span>}
             </span>
-            <button type="button" className="link-button link-button--danger" onClick={() => removeEmail(email)}>
+            <button
+              type="button"
+              className="link-button link-button--danger"
+              onClick={() => removeEmail(email)}
+              disabled={email === user?.email}
+              title={email === user?.email ? "You can't remove your own admin access" : undefined}
+            >
               Remove
             </button>
           </li>

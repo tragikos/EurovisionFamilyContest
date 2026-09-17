@@ -26,6 +26,33 @@ service cloud.firestore {
       );
     }
 
+    // Mirrors the client's own "revealPicks"/"votingStatus !== 'open'" check
+    // (SubmissionsCard, VotePage) - picks and results become readable by
+    // everyone once voting isn't actively open, not just once finalized.
+    function votingStatus() {
+      return exists(/databases/$(database)/documents/meta/config)
+        ? get(/databases/$(database)/documents/meta/config).data.votingStatus
+        : 'not_started';
+    }
+
+    function isRevealed() {
+      return votingStatus() != 'open';
+    }
+
+    function isVotingOpen() {
+      return votingStatus() == 'open';
+    }
+
+    // The name a prediction write is allowed to claim credit under: the
+    // admin-assigned name if one was set for this person, else their real
+    // Google account name - never an arbitrary string the client makes up,
+    // so nobody can submit a pick under someone else's name.
+    function canonicalMemberName() {
+      return exists(/databases/$(database)/documents/members/$(request.auth.token.email))
+        ? get(/databases/$(database)/documents/members/$(request.auth.token.email)).data.get('assignedName', request.auth.token.name)
+        : request.auth.token.name;
+    }
+
     match /meta/config {
       allow read: if signedIn();
       // Anyone signed in may create the config doc if it doesn't exist yet
@@ -36,53 +63,68 @@ service cloud.firestore {
     }
 
     match /contestants/{contestantId} {
-      allow read: if signedIn();
+      allow read: if isActiveParticipant();
       allow write: if isAdmin();
     }
 
     match /predictions/{predictionId} {
-      allow read: if signedIn();
-      // Normally you may only write your own prediction - the doc id is your
-      // uid - and only while you're an active (invited, non-blocked)
-      // participant. Admins can additionally write any prediction doc, so a
-      // backup restore (which recreates everyone's predictions under their
-      // original ids) doesn't get blocked just because the admin isn't that
-      // particular uid.
-      allow create, update: if isAdmin() || (signedIn() && request.auth.uid == predictionId && isActiveParticipant());
+      // Anyone may fetch their OWN prediction doc by id (so the voting page
+      // can load what you already saved) even while voting is still open and
+      // picks aren't revealed yet; seeing anyone else's is only allowed once
+      // isRevealed() (or you're an admin).
+      allow get: if isAdmin() || isRevealed() || (signedIn() && request.auth.uid == predictionId);
+      // A "list" query (subscribing to the whole collection) always returns
+      // every matching doc, so it can't be scoped to "just my own" the way
+      // get() can - only allow it once picks are revealed.
+      allow list: if isAdmin() || isRevealed();
+      // Only writable while voting is actually open - "closed"/"finalized"
+      // exists only as a client-side UI state otherwise, and without this a
+      // participant could submit a prediction after seeing the real result.
+      // Admins bypass this (e.g. to restore a backup) since they can already
+      // write any prediction doc regardless of whose uid it is.
+      allow create, update: if isAdmin() || (
+        signedIn() &&
+        request.auth.uid == predictionId &&
+        isActiveParticipant() &&
+        isVotingOpen() &&
+        request.resource.data.memberName == canonicalMemberName()
+      );
       allow delete: if isAdmin();
     }
 
     match /results/{resultId} {
-      allow read: if signedIn();
+      allow read: if isActiveParticipant();
       allow write: if isAdmin();
     }
 
     // Invite list: doc id is the invited email address.
     match /members/{email} {
       allow get: if signedIn() && (request.auth.token.email == email || isAdmin());
-      // Anyone signed in may list members - needed so the all-time leaderboard
-      // can resolve a consistent display name for each person across seasons
-      // (predictions/results are already readable by any signed-in user, so
-      // this doesn't widen the app's existing read posture).
-      allow list: if signedIn();
+      // Enumerating the whole invite list (needed so the all-time leaderboard
+      // can resolve a consistent display name for each person across
+      // seasons) is limited to people already known to the contest, not any
+      // Google account that happens to sign in.
+      allow list: if isActiveParticipant();
       allow create, delete: if isAdmin();
       // Admins can change anything; an invited (not yet active, not blocked)
       // user may flip their own doc from 'invited' to 'active' the first
       // time they sign in - and nothing else, so a blocked user (whose
-      // status is 'blocked', not 'invited') can never self-reactivate.
+      // status is 'blocked', not 'invited') can never self-reactivate, and
+      // they can't smuggle in a change to any other field (e.g. assignedName)
+      // while doing so.
       allow update: if isAdmin() || (
         signedIn() &&
         request.auth.token.email == email &&
         resource.data.status == 'invited' &&
         request.resource.data.status == 'active' &&
-        request.resource.data.email == resource.data.email
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'uid', 'displayName', 'firstSignInAt'])
       );
     }
 
     // Archived snapshots of past contests, written when an admin resets for
     // a new season, so past submissions remain visible afterwards.
     match /seasons/{seasonId} {
-      allow read: if signedIn();
+      allow read: if isActiveParticipant();
       allow write: if isAdmin();
     }
   }

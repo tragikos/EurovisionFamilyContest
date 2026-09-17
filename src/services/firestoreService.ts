@@ -10,7 +10,9 @@ import {
   query,
   setDoc,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore'
+import type { WriteBatch } from 'firebase/firestore'
 import type { FirestoreError } from 'firebase/firestore'
 import { db } from '../firebase'
 import type {
@@ -98,6 +100,20 @@ export function subscribeContestants(callback: (contestants: Contestant[]) => vo
  * valid.
  */
 export async function saveContestants(countries: string[]) {
+  const slugCounts = new Map<string, string[]>()
+  for (const country of countries) {
+    const slug = slugify(country)
+    slugCounts.set(slug, [...(slugCounts.get(slug) ?? []), country])
+  }
+  const collisions = [...slugCounts.values()].filter((names) => names.length > 1)
+  if (collisions.length > 0) {
+    throw new Error(
+      `These country names produce the same identifier and would overwrite each other: ${collisions
+        .map((names) => names.join(' / '))
+        .join(', ')}. Use more distinct spellings.`,
+    )
+  }
+
   const col = contestantsCol()
   const existing = await getDocs(col)
   const nextIds = new Set(countries.map((c) => slugify(c)))
@@ -121,6 +137,20 @@ export function subscribePredictions(callback: (predictions: Prediction[]) => vo
     predictionsCol(),
     (snapshot) => callback(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as Prediction)),
     logSnapshotError('predictions'),
+  )
+}
+
+/**
+ * Subscribes to just the signed-in user's own prediction doc, for use while
+ * voting is still open: the security rules only allow reading everyone
+ * else's picks once voting is no longer open, but you can always read your
+ * own so the voting page can show what you already saved.
+ */
+export function subscribeOwnPrediction(uid: string, callback: (predictions: Prediction[]) => void) {
+  return onSnapshot(
+    doc(predictionsCol(), uid),
+    (snapshot) => callback(snapshot.exists() ? [{ id: snapshot.id, ...snapshot.data() } as Prediction] : []),
+    logSnapshotError('your prediction'),
   )
 }
 
@@ -281,8 +311,25 @@ export async function exportBackup(): Promise<BackupData> {
 }
 
 /**
+ * Applies a batch of set/delete operations in chunks (Firestore batched
+ * writes cap out at 500 operations), each chunk atomic on its own, in the
+ * order given - so callers should order every `set` before any `delete` that
+ * depends on it having landed first.
+ */
+async function commitInChunks(ops: ((batch: WriteBatch) => void)[], chunkSize = 400) {
+  const db = requireDb()
+  for (let i = 0; i < ops.length; i += chunkSize) {
+    const batch = writeBatch(db)
+    ops.slice(i, i + chunkSize).forEach((op) => op(batch))
+    await batch.commit()
+  }
+}
+
+/**
  * Replaces every collection with the contents of a previously exported
- * backup. Destructive - wipes whatever is currently there first.
+ * backup. Every new/updated doc is written before anything stale is deleted,
+ * so a dropped connection or closed tab partway through leaves extra
+ * leftover docs at worst, never a wiped database with nothing restored yet.
  */
 export async function importBackup(data: BackupData) {
   const [existingContestants, existingPredictions, existingMembers, existingSeasons] = await Promise.all([
@@ -291,27 +338,34 @@ export async function importBackup(data: BackupData) {
     getDocs(membersCol()),
     getDocs(seasonsCol()),
   ])
-  await Promise.all([
-    ...existingContestants.docs.map((d) => deleteDoc(d.ref)),
-    ...existingPredictions.docs.map((d) => deleteDoc(d.ref)),
-    ...existingMembers.docs.map((d) => deleteDoc(d.ref)),
-    ...existingSeasons.docs.map((d) => deleteDoc(d.ref)),
-  ])
 
-  const writes: Promise<void>[] = []
+  const setOps: ((batch: WriteBatch) => void)[] = []
+  const deleteOps: ((batch: WriteBatch) => void)[] = []
 
-  if (data.config) writes.push(setDoc(configRef(), data.config))
+  if (data.config) setOps.push((b) => b.set(configRef(), data.config as ContestConfig))
 
+  const newContestantIds = new Set(data.contestants.map((c) => c.id))
   for (const c of data.contestants) {
-    writes.push(setDoc(doc(contestantsCol(), c.id), { country: c.country, appearanceOrder: c.appearanceOrder }))
+    setOps.push((b) => b.set(doc(contestantsCol(), c.id), { country: c.country, appearanceOrder: c.appearanceOrder }))
+  }
+  for (const d of existingContestants.docs) {
+    if (!newContestantIds.has(d.id)) deleteOps.push((b) => b.delete(d.ref))
   }
 
+  const newPredictionIds = new Set(data.predictions.map((p) => p.id))
   for (const p of data.predictions) {
-    writes.push(setDoc(doc(predictionsCol(), p.id), { memberName: p.memberName, order: p.order, updatedAt: p.updatedAt }))
+    setOps.push((b) =>
+      b.set(doc(predictionsCol(), p.id), { memberName: p.memberName, order: p.order, updatedAt: p.updatedAt }),
+    )
+  }
+  for (const d of existingPredictions.docs) {
+    if (!newPredictionIds.has(d.id)) deleteOps.push((b) => b.delete(d.ref))
   }
 
-  writes.push(data.result ? setDoc(resultsRef(), data.result) : deleteDoc(resultsRef()))
+  if (data.result) setOps.push((b) => b.set(resultsRef(), data.result as FinalResult))
+  else deleteOps.push((b) => b.delete(resultsRef()))
 
+  const newMemberIds = new Set(data.members.map((m) => m.email))
   for (const m of data.members) {
     const memberData: Omit<Member, 'email'> = {
       status: m.status,
@@ -320,14 +374,22 @@ export async function importBackup(data: BackupData) {
       ...(m.uid ? { uid: m.uid } : {}),
       ...(m.displayName ? { displayName: m.displayName } : {}),
       ...(m.firstSignInAt ? { firstSignInAt: m.firstSignInAt } : {}),
+      ...(m.assignedName ? { assignedName: m.assignedName } : {}),
     }
-    writes.push(setDoc(doc(membersCol(), m.email), memberData))
+    setOps.push((b) => b.set(doc(membersCol(), m.email), memberData))
+  }
+  for (const d of existingMembers.docs) {
+    if (!newMemberIds.has(d.id)) deleteOps.push((b) => b.delete(d.ref))
   }
 
+  const newSeasonIds = new Set(data.seasons.map((s) => s.id))
   for (const s of data.seasons) {
     const { id, ...seasonData } = s
-    writes.push(setDoc(doc(seasonsCol(), id), seasonData))
+    setOps.push((b) => b.set(doc(seasonsCol(), id), seasonData))
+  }
+  for (const d of existingSeasons.docs) {
+    if (!newSeasonIds.has(d.id)) deleteOps.push((b) => b.delete(d.ref))
   }
 
-  await Promise.all(writes)
+  await commitInChunks([...setOps, ...deleteOps])
 }
