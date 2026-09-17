@@ -70,13 +70,19 @@ service cloud.firestore {
     match /predictions/{predictionId} {
       // Anyone may fetch their OWN prediction doc by id (so the voting page
       // can load what you already saved) even while voting is still open and
-      // picks aren't revealed yet; seeing anyone else's is only allowed once
-      // isRevealed() (or you're an admin).
-      allow get: if isAdmin() || isRevealed() || (signedIn() && request.auth.uid == predictionId);
+      // picks aren't revealed yet; seeing anyone else's - even for an admin -
+      // is only allowed once isRevealed() AND you're an active participant.
+      // isRevealed() alone is just a database-content check with no
+      // request.auth involved at all, so it must never be the only thing
+      // standing between a reader and the data (that would let a
+      // signed-out request through too). isActiveParticipant() already
+      // covers admins, so there's no separate isAdmin() bypass here.
+      allow get: if (isActiveParticipant() && isRevealed()) || (signedIn() && request.auth.uid == predictionId);
       // A "list" query (subscribing to the whole collection) always returns
       // every matching doc, so it can't be scoped to "just my own" the way
-      // get() can - only allow it once picks are revealed.
-      allow list: if isAdmin() || isRevealed();
+      // get() can - only allow it once picks are revealed, to an active
+      // participant (admins included, via isActiveParticipant()).
+      allow list: if isActiveParticipant() && isRevealed();
       // Only writable while voting is actually open - "closed"/"finalized"
       // exists only as a client-side UI state otherwise, and without this a
       // participant could submit a prediction after seeing the real result.

@@ -56,17 +56,18 @@ export function ContestDataProvider({ children }: { children: ReactNode }) {
   }, [authReady, user])
 
   // Predictions are subscribed separately from the rest: the security rules
-  // only let you list everyone's picks once voting is no longer open (or
-  // you're an admin) - before that, all you can read is your own, via a
-  // single-doc subscription instead of a collection listener.
+  // only let you list everyone's picks once voting is no longer open - not
+  // even admins are exempt, so an admin who's also playing can't see anyone
+  // else's pick before finalizing their own. Before that, all you (admin or
+  // not) can read is your own, via a single-doc subscription instead of a
+  // collection listener.
   useEffect(() => {
     if (!user || !config) {
       setPredictions([])
       return
     }
-    const isAdmin = config.adminEmails.includes(user.email)
     const revealed = config.votingStatus !== 'open'
-    return isAdmin || revealed ? subscribePredictions(setPredictions) : subscribeOwnPrediction(user.uid, setPredictions)
+    return revealed ? subscribePredictions(setPredictions) : subscribeOwnPrediction(user.uid, setPredictions)
   }, [user, config])
 
   const value: ContestDataValue = { ready, error, config, contestants, predictions, result }

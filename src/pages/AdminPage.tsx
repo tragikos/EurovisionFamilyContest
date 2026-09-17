@@ -44,7 +44,7 @@ export function AdminPage() {
       <SubmissionsCard predictions={predictions} contestants={contestants} votingStatus={config.votingStatus} />
       <InvitesCard />
       <AdminsCard adminEmails={config.adminEmails} />
-      <BackupCard />
+      <BackupCard votingStatus={config.votingStatus} />
       <HistoryCard />
       <DangerZoneCard title={config.title ?? ''} votingStatus={config.votingStatus} />
     </div>
@@ -295,9 +295,12 @@ function SubmissionsCard({
   contestants: Contestant[]
   votingStatus: VotingStatus
 }) {
-  // Picks stay hidden (name + time only) while voting is still open, even
-  // from admins, so an admin who's also playing can't peek at everyone
-  // else's picks before adjusting their own.
+  // Picks - including who has submitted - stay completely hidden while
+  // voting is open, even from admins, so an admin who's also playing can't
+  // peek at everyone else's before adjusting their own. This is enforced by
+  // firestore.rules (predictions are only listable once isRevealed()), not
+  // just this UI - while voting is open, `predictions` here only ever
+  // contains the current admin's own submission, if any.
   const revealPicks = votingStatus !== 'open'
   const [query, setQuery] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -308,11 +311,12 @@ function SubmissionsCard({
     : sorted
 
   return (
-    <CollapsibleCard title={`Submissions (${predictions.length})`}>
-      {!revealPicks && (
-        <p className="hint-text">Picks stay hidden until voting closes, even from admins.</p>
-      )}
-      {predictions.length === 0 ? (
+    <CollapsibleCard title={revealPicks ? `Submissions (${predictions.length})` : 'Submissions'}>
+      {!revealPicks ? (
+        <p className="hint-text">
+          Submissions - including who has submitted - stay completely hidden until voting closes, even from admins.
+        </p>
+      ) : predictions.length === 0 ? (
         <p className="hint-text">Nobody has submitted a prediction yet.</p>
       ) : (
         <>
@@ -332,23 +336,15 @@ function SubmissionsCard({
           <ul className="submissions-list">
             {filtered.map((p) => (
               <li key={p.id}>
-                {revealPicks ? (
-                  <>
-                    <button
-                      type="button"
-                      className="link-button submission-row-toggle"
-                      onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}
-                    >
-                      {expandedId === p.id ? '▾' : '▸'} {p.memberName}
-                    </button>{' '}
-                    <span className="hint-text">— saved {new Date(p.updatedAt).toLocaleString()}</span>
-                    {expandedId === p.id && <PredictionOrderList contestants={contestants} order={p.order} />}
-                  </>
-                ) : (
-                  <>
-                    {p.memberName} — <span className="hint-text">{new Date(p.updatedAt).toLocaleString()}</span>
-                  </>
-                )}
+                <button
+                  type="button"
+                  className="link-button submission-row-toggle"
+                  onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}
+                >
+                  {expandedId === p.id ? '▾' : '▸'} {p.memberName}
+                </button>{' '}
+                <span className="hint-text">— saved {new Date(p.updatedAt).toLocaleString()}</span>
+                {expandedId === p.id && <PredictionOrderList contestants={contestants} order={p.order} />}
               </li>
             ))}
           </ul>
@@ -912,7 +908,7 @@ function AdminsCard({ adminEmails }: { adminEmails: string[] }) {
 }
 
 /** Full backup/restore of everything in Firestore - separate from the per-season history above. */
-function BackupCard() {
+function BackupCard({ votingStatus }: { votingStatus: VotingStatus }) {
   const { showSuccess, showError } = useToast()
   const confirm = useConfirm()
   const [exporting, setExporting] = useState(false)
@@ -981,6 +977,12 @@ function BackupCard() {
         Export everything (contestants, predictions, results, invited players, and history) as one file, or restore
         from a previously exported file. Restoring replaces everything currently stored.
       </p>
+      {votingStatus === 'open' && (
+        <p className="hint-text">
+          Predictions stay hidden while voting is open, so an export taken now will skip them — export again once
+          voting closes to include everyone's picks.
+        </p>
+      )}
       <div className="form-actions">
         <button type="button" className="secondary-button" onClick={handleExport} disabled={exporting}>
           {exporting && <Spinner />}

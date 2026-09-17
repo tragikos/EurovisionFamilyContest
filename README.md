@@ -133,9 +133,11 @@ that server-side, not just in the UI:
   - a submitted prediction's `memberName` must match your admin-assigned name
     or real Google name — you can't write a pick under someone else's name;
   - everyone's picks (and the final result) are only *readable* by other
-    participants once voting is no longer open — while it's open, you can
-    only read your own, so there's nothing to peek at even by inspecting
-    network traffic;
+    participants — including admins — once voting is no longer open; while
+    it's open, everyone (admins too) can only read their own, so there's
+    nothing to peek at even by inspecting network traffic. The trade-off:
+    an admin's **Export backup** skips predictions entirely while voting is
+    open, for the same reason — export again once it closes to include them;
   - only active participants (invited-and-not-blocked, or admins) can read
     the contestant list, predictions, results, or past-season archives at
     all — a Google account that was never invited can't enumerate any of it,
@@ -157,10 +159,13 @@ that server-side, not just in the UI:
   account, since the app needs it to even tell someone they're not invited.
 - Only people an admin has invited (by email) can submit predictions; anyone
   else who signs in sees a "not invited" screen and can't participate.
-- The admin list can never be emptied out from the UI, and you can't remove
-  your own admin access from the Admins card — `meta/config` can only be
-  *updated* by an existing admin and has no delete rule, so a sole admin
-  locking themselves out would need the Firebase console to recover.
+- The Admins card's UI won't let you empty the admin list or remove your own
+  access, but the underlying rule only requires *being* an admin to update
+  `meta/config` — it doesn't stop an admin from emptying the list via a raw
+  API call. That's self-inflicted, not exploitable by anyone else, but worth
+  knowing: `meta/config` has no delete rule and can only be *updated* by an
+  existing admin, so a sole admin locking themselves out this way would need
+  the Firebase console to recover.
 - **Whenever `firebase/firestore.rules` changes in this repo (as it has
   changed alongside these notes), re-publish it in the Firebase console** —
   Firestore doesn't pick up rule changes on its own, so a `git pull` alone

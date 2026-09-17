@@ -289,11 +289,27 @@ export async function markMemberActive(email: string, uid: string, displayName: 
 }
 
 /** Reads every collection into one JSON-serializable snapshot, for a manual backup download. */
+/**
+ * Predictions are only readable while voting isn't open (picks stay hidden
+ * from everyone, admins included, until then - see firestore.rules), so a
+ * backup taken mid-vote can't include them. Rather than fail the whole
+ * export over that one collection, this just omits predictions in that
+ * case - export again once voting closes to capture them too.
+ */
+async function readPredictionsForBackup(): Promise<Prediction[]> {
+  try {
+    const snapshot = await getDocs(predictionsCol())
+    return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as Prediction)
+  } catch {
+    return []
+  }
+}
+
 export async function exportBackup(): Promise<BackupData> {
-  const [configSnap, contestantsSnap, predictionsSnap, resultSnap, membersSnap, seasonsSnap] = await Promise.all([
+  const [configSnap, contestantsSnap, predictions, resultSnap, membersSnap, seasonsSnap] = await Promise.all([
     getDoc(configRef()),
     getDocs(contestantsCol()),
-    getDocs(predictionsCol()),
+    readPredictionsForBackup(),
     getDoc(resultsRef()),
     getDocs(membersCol()),
     getDocs(seasonsCol()),
@@ -303,7 +319,7 @@ export async function exportBackup(): Promise<BackupData> {
     exportedAt: Date.now(),
     config: configSnap.exists() ? (configSnap.data() as ContestConfig) : null,
     contestants: contestantsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Contestant),
-    predictions: predictionsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Prediction),
+    predictions,
     result: resultSnap.exists() ? (resultSnap.data() as FinalResult) : null,
     members: membersSnap.docs.map((d) => ({ email: d.id, ...d.data() }) as Member),
     seasons: seasonsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Season),
