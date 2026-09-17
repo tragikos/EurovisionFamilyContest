@@ -447,8 +447,6 @@ input:focus {
   border: 1px solid var(--card-border);
   border-radius: 10px;
   padding: 0.6rem 0.8rem;
-  cursor: grab;
-  touch-action: none;
 }
 
 .sortable-row--dragging {
@@ -475,6 +473,14 @@ input:focus {
 
 .sortable-row__handle {
   color: var(--text-dim);
+  cursor: grab;
+  touch-action: none;
+  padding: 0.3rem;
+  margin: -0.3rem;
+}
+
+.sortable-row--disabled .sortable-row__handle {
+  cursor: default;
 }
 
 .sortable-row__label {

@@ -130,10 +130,10 @@ export function VotePage() {
           items={order}
           getId={(c) => c.id}
           onReorder={setOrder}
-          renderItem={(c, index) => (
+          renderItem={(c, index, handleProps) => (
             <div className="sortable-row__content">
               <span className="sortable-row__rank">{index + 1}</span>
-              <span className="sortable-row__handle">⠿</span>
+              <span className="sortable-row__handle" {...handleProps}>⠿</span>
               <span className="sortable-row__label">{c.country}</span>
             </div>
           )}

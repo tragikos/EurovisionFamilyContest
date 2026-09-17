@@ -15,13 +15,16 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { ReactNode } from 'react'
+import type { HTMLAttributes, ReactNode } from 'react'
+
+/** Spread onto whichever element should be the sole drag trigger - never the whole row, so touch scrolling still works. */
+export type DragHandleProps = HTMLAttributes<HTMLElement>
 
 interface SortableListProps<T> {
   items: T[]
   getId: (item: T) => string
   onReorder: (items: T[]) => void
-  renderItem: (item: T, index: number) => ReactNode
+  renderItem: (item: T, index: number, handleProps: DragHandleProps) => ReactNode
   disabled?: boolean
 }
 
@@ -46,7 +49,7 @@ export function SortableList<T>({ items, getId, onReorder, renderItem, disabled 
         <ol className="sortable-list">
           {items.map((item, index) => (
             <SortableRow key={getId(item)} id={getId(item)} disabled={disabled}>
-              {renderItem(item, index)}
+              {(handleProps) => renderItem(item, index, handleProps)}
             </SortableRow>
           ))}
         </ol>
@@ -55,7 +58,15 @@ export function SortableList<T>({ items, getId, onReorder, renderItem, disabled 
   )
 }
 
-function SortableRow({ id, disabled, children }: { id: string; disabled?: boolean; children: ReactNode }) {
+function SortableRow({
+  id,
+  disabled,
+  children,
+}: {
+  id: string
+  disabled?: boolean
+  children: (handleProps: DragHandleProps) => ReactNode
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
     disabled,
@@ -66,15 +77,15 @@ function SortableRow({ id, disabled, children }: { id: string; disabled?: boolea
     transition,
   }
 
+  const handleProps: DragHandleProps = { ...attributes, ...listeners }
+
   return (
     <li
       ref={setNodeRef}
       style={style}
       className={`sortable-row${isDragging ? ' sortable-row--dragging' : ''}${disabled ? ' sortable-row--disabled' : ''}`}
-      {...attributes}
-      {...listeners}
     >
-      {children}
+      {children(handleProps)}
     </li>
   )
 }

@@ -248,10 +248,10 @@ function ContestantsCard({
         items={rows}
         getId={(row) => row.key}
         onReorder={setRows}
-        renderItem={(row, index) => (
+        renderItem={(row, index, handleProps) => (
           <div className="sortable-row__content">
             <span className="sortable-row__rank">{index + 1}</span>
-            <span className="sortable-row__handle">⠿</span>
+            <span className="sortable-row__handle" {...handleProps}>⠿</span>
             <input
               autoComplete="off"
               data-lpignore="true"
@@ -262,12 +262,10 @@ function ContestantsCard({
               value={row.country}
               placeholder="Country name"
               onChange={(e) => updateCountry(row.key, e.target.value)}
-              onPointerDown={(e) => e.stopPropagation()}
             />
             <button
               type="button"
               className="link-button link-button--danger"
-              onPointerDown={(e) => e.stopPropagation()}
               onClick={() => removeRow(row.key)}
             >
               Remove
@@ -394,10 +392,10 @@ function FinalStandingCard({ contestants }: { contestants: Contestant[] }) {
         items={order}
         getId={(c) => c.id}
         onReorder={setOrder}
-        renderItem={(c, index) => (
+        renderItem={(c, index, handleProps) => (
           <div className="sortable-row__content">
             <span className="sortable-row__rank">{index + 1}</span>
-            <span className="sortable-row__handle">⠿</span>
+            <span className="sortable-row__handle" {...handleProps}>⠿</span>
             <span className="sortable-row__label">{c.country}</span>
           </div>
         )}
