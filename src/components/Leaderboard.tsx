@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react'
 import type { Contestant, FinalResult, Prediction } from '../types'
-import { computeStandings } from '../services/scoring'
+import { computeStandings, pointsForRank } from '../services/scoring'
 import { medalEmoji } from '../utils/medal'
 
 /**
@@ -70,6 +70,7 @@ export function Leaderboard({
               <tr>
                 <th>Rank</th>
                 <th>Family member</th>
+                <th>Points</th>
                 <th>Score</th>
               </tr>
             </thead>
@@ -92,13 +93,14 @@ export function Leaderboard({
                         {entry.memberName}
                         {isMe ? ' (you)' : ''}
                       </td>
+                      <td>{pointsForRank(entry.rank)}</td>
                       <td style={{ background: magnitudeColor(entry.score, minScore, maxScore, SCORE_TARGET) }}>
                         {entry.score}
                       </td>
                     </tr>
                     {isExpanded && prediction && (
                       <tr className="leaderboard-table__detail-row">
-                        <td colSpan={3}>
+                        <td colSpan={4}>
                           <PredictionBreakdown prediction={prediction} contestants={contestants} result={result} />
                         </td>
                       </tr>

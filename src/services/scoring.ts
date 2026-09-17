@@ -6,6 +6,14 @@ export interface OverallStanding {
   wins: number
   bestScore: number
   averageScore: number
+  points: number
+}
+
+/** F1-style points per finishing position: 25-18-15-12-10-8-6-4-2-1, then nothing. */
+const POINTS_BY_RANK = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
+
+export function pointsForRank(rank: number): number {
+  return POINTS_BY_RANK[rank - 1] ?? 0
 }
 
 /**
@@ -50,17 +58,21 @@ export function computeStandings(predictions: Prediction[], result: FinalResult)
  * uid in one season and an email in another for historical entries.
  */
 export function computeOverallStandings(rounds: { predictions: Prediction[]; result: FinalResult }[]): OverallStanding[] {
-  const byName = new Map<string, { totalScore: number; contests: number; wins: number; bestScore: number }>()
+  const byName = new Map<
+    string,
+    { totalScore: number; contests: number; wins: number; bestScore: number; points: number }
+  >()
 
   for (const round of rounds) {
     const standings = computeStandings(round.predictions, round.result)
     for (const entry of standings) {
       const name = entry.memberName.trim()
       if (!name) continue
-      const existing = byName.get(name) ?? { totalScore: 0, contests: 0, wins: 0, bestScore: Infinity }
+      const existing = byName.get(name) ?? { totalScore: 0, contests: 0, wins: 0, bestScore: Infinity, points: 0 }
       existing.totalScore += entry.score
       existing.contests += 1
       existing.bestScore = Math.min(existing.bestScore, entry.score)
+      existing.points += pointsForRank(entry.rank)
       if (entry.rank === 1) existing.wins += 1
       byName.set(name, existing)
     }
@@ -73,6 +85,7 @@ export function computeOverallStandings(rounds: { predictions: Prediction[]; res
       wins: v.wins,
       bestScore: v.bestScore,
       averageScore: v.totalScore / v.contests,
+      points: v.points,
     }))
-    .sort((a, b) => a.averageScore - b.averageScore)
+    .sort((a, b) => b.points - a.points)
 }

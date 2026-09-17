@@ -6,17 +6,18 @@ import type { OverallStanding } from '../services/scoring'
 import { medalEmoji } from '../utils/medal'
 import type { Member, Prediction, Season } from '../types'
 
-type SortKey = 'memberName' | 'contests' | 'wins' | 'bestScore' | 'averageScore'
+type SortKey = 'memberName' | 'contests' | 'wins' | 'bestScore' | 'averageScore' | 'points'
 type SortDir = 'asc' | 'desc'
 
 // The natural direction to start with when a column is first clicked: more
-// contests/wins is better (desc), but a lower score is better (asc).
+// contests/wins/points is better (desc), but a lower score is better (asc).
 const DEFAULT_SORT_DIR: Record<SortKey, SortDir> = {
   memberName: 'asc',
   contests: 'desc',
   wins: 'desc',
   bestScore: 'asc',
   averageScore: 'asc',
+  points: 'desc',
 }
 
 function compareStandings(a: OverallStanding, b: OverallStanding, key: SortKey): number {
@@ -42,7 +43,7 @@ export function OverallLeaderboardPage() {
   const [seasons, setSeasons] = useState<Season[] | null>(null)
   const [members, setMembers] = useState<Member[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [sortKey, setSortKey] = useState<SortKey>('wins')
+  const [sortKey, setSortKey] = useState<SortKey>('points')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
   function handleSort(key: SortKey) {
@@ -121,8 +122,8 @@ export function OverallLeaderboardPage() {
     <div className="card">
       <h1>All-time leaderboard</h1>
       <p className="hint-text">
-        Combined across all {rounds.length} finalized contest{rounds.length === 1 ? '' : 's'} so far. Click a column
-        to sort by it.
+        Combined across all {rounds.length} finalized contest{rounds.length === 1 ? '' : 's'} so far — 25-18-15-12-10
+        -8-6-4-2-1 points for 1st through 10th each contest, like a race championship. Click a column to sort by it.
       </p>
       <div className="table-scroll">
         <table className="leaderboard-table">
@@ -130,6 +131,7 @@ export function OverallLeaderboardPage() {
             <tr>
               <th>Rank</th>
               {sortableHeader('Family member', 'memberName')}
+              {sortableHeader('Points', 'points')}
               {sortableHeader('Contests', 'contests')}
               {sortableHeader('Wins', 'wins')}
               {sortableHeader('Best score', 'bestScore')}
@@ -144,6 +146,7 @@ export function OverallLeaderboardPage() {
                   {index + 1}
                 </td>
                 <td>{s.memberName}</td>
+                <td>{s.points}</td>
                 <td>{s.contests}</td>
                 <td>{s.wins}</td>
                 <td>{s.bestScore}</td>
