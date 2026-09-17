@@ -20,6 +20,20 @@
           document.documentElement.setAttribute('data-theme', 'light')
         }
       } catch (e) {}
+
+      // Registered here (before any of our own module code, and therefore
+      // before Firebase's own SDK code, ever runs) so it's guaranteed to be
+      // listening before Firebase Auth/Firestore's background housekeeping
+      // requests can reject. Those retry silently on their own - a transient
+      // "Failed to fetch" from them isn't an app bug, just noisy to leave
+      // showing as a scary uncaught error in the console.
+      window.addEventListener('unhandledrejection', function (event) {
+        var reason = event.reason
+        var message = reason && reason.message ? reason.message : String(reason)
+        if (message.indexOf('Failed to fetch') !== -1) {
+          event.preventDefault()
+        }
+      })
     </script>
   </head>
   <body>

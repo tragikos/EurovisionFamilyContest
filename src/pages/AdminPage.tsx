@@ -708,23 +708,26 @@ function HistoryCard() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deletingAll, setDeletingAll] = useState(false)
 
-  async function load() {
+  useEffect(() => {
+    let cancelled = false
     setLoading(true)
-    try {
-      setSeasons(await getSeasons())
-      setLoaded(true)
-    } catch (err) {
-      showError(errorMessage(err, 'Failed to load contest history.'))
-    } finally {
-      setLoading(false)
+    getSeasons()
+      .then((result) => {
+        if (cancelled) return
+        setSeasons(result)
+        setLoaded(true)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) showError(errorMessage(err, 'Failed to load contest history.'))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
     }
-  }
-
-  async function handleToggleOpen() {
-    const next = !open
-    setOpen(next)
-    if (next && !loaded) await load()
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function handleDeleteOne(season: Season) {
     const confirmed = await confirm(`Permanently delete "${season.title}"? This can't be undone.`, {
@@ -764,7 +767,7 @@ function HistoryCard() {
 
   return (
     <div className="card">
-      <button type="button" className="section-toggle" onClick={handleToggleOpen}>
+      <button type="button" className="section-toggle" onClick={() => setOpen((o) => !o)}>
         {open ? '▾' : '▸'} Contest history ({loaded ? seasons.length : '…'})
       </button>
       {open && (
