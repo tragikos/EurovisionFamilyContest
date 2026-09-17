@@ -60,6 +60,9 @@ export function VotePage() {
 
   if (!ready || !user) return null
 
+  const currentOrderIds = order.map((c) => c.id)
+  const hasChanges = JSON.stringify(currentOrderIds) !== JSON.stringify(myPrediction?.order ?? [])
+
   const contestTitle = config?.title ? <p className="contest-title-label">{config.title}</p> : null
 
   let content: ReactNode
@@ -139,7 +142,12 @@ export function VotePage() {
           )}
         />
         <div className="form-actions">
-          <button type="button" className="primary-button" onClick={handleSubmit} disabled={saving}>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={handleSubmit}
+            disabled={saving || (myPrediction ? !hasChanges : false)}
+          >
             {saving && <Spinner />}
             {saving ? 'Saving…' : myPrediction ? 'Update my prediction' : 'Submit my prediction'}
           </button>
