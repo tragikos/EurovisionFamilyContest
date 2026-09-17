@@ -17,8 +17,10 @@ window and enters the real result once the show is over.
   else.
 - While voting is **open**, each **family member** (including admins) drags
   the contestants into the order they predict they'll actually finish in (1st
-  place at the top). They can change their mind and resubmit as many times as
-  they like.
+  place at the top), using the grip handle next to each row (dragging
+  elsewhere on a row scrolls the page instead, so it works on mobile). They
+  can change their mind and resubmit as many times as they like — the submit
+  button only enables once the order actually differs from what's saved.
 - Submitted picks stay hidden from everyone, including admins, until voting
   closes — an admin who's also playing can't peek at anyone's pick before
   finalizing their own.
@@ -26,9 +28,14 @@ window and enters the real result once the show is over.
   standing** once it's announced.
 - The app automatically computes each family member's score (sum of how far
   off each country's predicted position was from its real position — lower is
-  better, 0 is a perfect prediction) and shows a leaderboard. Click any name
-  on the leaderboard to see their full pick and exactly how much each
-  country's placement cost them, and compare it against anyone else's.
+  better, 0 is a perfect prediction) and shows a leaderboard, with F1-style
+  championship points (25-18-15-12-10-8-6-4-2-1 for 1st through 10th) awarded
+  for that contest's ranking. Click any name on the leaderboard to see their
+  full pick and exactly how much each country's placement cost them, and
+  compare it against anyone else's.
+- An **all-time leaderboard** adds up everyone's points across every
+  finalized contest, so the family can track a season-long "championship" the
+  same way F1 does, alongside each person's win count and average score.
 - Admins can see everyone they've invited, whether each person has ever
   signed in, and can **block** someone to revoke their access without
   deleting their history. Admins can also look back at anyone's submissions
@@ -44,6 +51,8 @@ refresh when the admin opens/closes voting or the results come in.
   server config)
 - Firebase (Firestore for data, Google sign-in for identity)
 - [`@dnd-kit`](https://dndkit.com/) for the drag-and-drop ordering lists
+- Light/dark theme toggle (defaults to the device's OS preference, overridable
+  per-visitor) and a mobile-friendly hamburger header
 - Deployed to **GitHub Pages** via GitHub Actions
 
 No custom backend to host — the whole app is static and talks to Firebase
@@ -139,7 +148,7 @@ src/
   context/        Auth (Google sign-in), membership (invite/admin status),
                    and live Firestore data
   hooks/          useIsAdmin
-  pages/          Login/setup, family member voting page, admin page
+  pages/          Login/setup, voting page, admin page, all-time leaderboard
   services/       Firestore reads/writes, scoring algorithm
 firebase/
   firestore.rules Security rules to paste into the Firebase console
