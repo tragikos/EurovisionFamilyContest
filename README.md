@@ -137,7 +137,9 @@ that server-side, not just in the UI:
     it's open, everyone (admins too) can only read their own, so there's
     nothing to peek at even by inspecting network traffic. The trade-off:
     an admin's **Export backup** skips predictions entirely while voting is
-    open, for the same reason — export again once it closes to include them;
+    open, for the same reason — export again once it closes to include them.
+    Any other export failure (a dropped connection, say) still surfaces as an
+    error rather than silently producing an incomplete backup;
   - only active participants (invited-and-not-blocked, or admins) can read
     the contestant list, predictions, results, or past-season archives at
     all — a Google account that was never invited can't enumerate any of it,

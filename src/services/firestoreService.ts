@@ -288,23 +288,27 @@ export async function markMemberActive(email: string, uid: string, displayName: 
   })
 }
 
-/** Reads every collection into one JSON-serializable snapshot, for a manual backup download. */
 /**
  * Predictions are only readable while voting isn't open (picks stay hidden
  * from everyone, admins included, until then - see firestore.rules), so a
  * backup taken mid-vote can't include them. Rather than fail the whole
- * export over that one collection, this just omits predictions in that
- * case - export again once voting closes to capture them too.
+ * export over that one collection, this omits predictions in that
+ * specific case - export again once voting closes to capture them too.
+ * Any other failure (a dropped connection, misconfigured rules, etc.) is
+ * rethrown instead of also being swallowed, so a backup can't silently
+ * come back with an empty predictions array and a false "success" toast.
  */
 async function readPredictionsForBackup(): Promise<Prediction[]> {
   try {
     const snapshot = await getDocs(predictionsCol())
     return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as Prediction)
-  } catch {
-    return []
+  } catch (err) {
+    if ((err as FirestoreError).code === 'permission-denied') return []
+    throw err
   }
 }
 
+/** Reads every collection into one JSON-serializable snapshot, for a manual backup download. */
 export async function exportBackup(): Promise<BackupData> {
   const [configSnap, contestantsSnap, predictions, resultSnap, membersSnap, seasonsSnap] = await Promise.all([
     getDoc(configRef()),
