@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 type Theme = 'dark' | 'light'
 
 const STORAGE_KEY = 'efc-theme'
+const THEME_COLOR: Record<Theme, string> = { dark: '#150826', light: '#f6f2fc' }
 
 interface ThemeContextValue {
   theme: Theme
@@ -25,6 +26,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[theme])
     try {
       window.localStorage.setItem(STORAGE_KEY, theme)
     } catch {

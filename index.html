@@ -4,7 +4,17 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#150826" />
     <title>Eurovision Family Contest</title>
+    <script>
+      // Applied synchronously, before the page paints, so there's no flash of
+      // the wrong theme while React loads and reconciles the saved choice.
+      try {
+        if (localStorage.getItem('efc-theme') === 'light') {
+          document.documentElement.setAttribute('data-theme', 'light')
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

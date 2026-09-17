@@ -46,6 +46,16 @@ body,
   min-height: 100%;
 }
 
+/*
+ * Mobile browsers paint overscroll/rubber-band regions using this element's
+ * own background before the page's content shows through - leaving it
+ * transparent lets the OS's own dark-mode canvas bleed in as black, even
+ * while the app is correctly showing its light theme underneath.
+ */
+html {
+  background: var(--bg);
+}
+
 body {
   margin: 0;
   background:
@@ -79,15 +89,28 @@ a {
 }
 
 .app-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   margin-right: auto;
   font-weight: 800;
   font-size: 1.15rem;
   text-decoration: none;
+  white-space: nowrap;
   color: var(--text);
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+.app-title__icon {
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.app-title__short {
+  display: none;
 }
 
 .menu-toggle,
@@ -134,6 +157,14 @@ a {
 @media (max-width: 700px) {
   .menu-toggle {
     display: inline-flex;
+  }
+
+  .app-title__full {
+    display: none;
+  }
+
+  .app-title__short {
+    display: inline;
   }
 
   .app-header__nav {

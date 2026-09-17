@@ -31,7 +31,9 @@ export function Layout({ children }: { children: ReactNode }) {
     <div className="app-shell">
       <header className="app-header">
         <Link to="/" className="app-title" onClick={closeMenu}>
-          🇪🇺 Eurovision Family Contest
+          <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" width={28} height={28} className="app-title__icon" />
+          <span className="app-title__full">Eurovision Family Contest</span>
+          <span className="app-title__short">EFC</span>
         </Link>
         {config && <StatusBanner status={config.votingStatus} />}
         <button
