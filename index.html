@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Tells the browser this page fully supports both schemes on its own, so
+      mobile Chrome's "force dark" doesn't try to auto-invert/darken it on
+      top of our own theme (which produces a muddy, semi-black look).
+    -->
+    <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#150826" />
     <title>Eurovision Family Contest</title>
     <script>
