@@ -98,6 +98,24 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // A deliberately thin companion to /predictions: just who has submitted
+    // and when, with no `order` field at all - so it can safely stay
+    // readable to every active participant even while voting is open and
+    // the actual picks in /predictions are still hidden. Lets admins (and
+    // everyone else) see submission progress without seeing anyone's pick.
+    match /submissionStatus/{uid} {
+      allow get, list: if isActiveParticipant();
+      allow create, update: if isAdmin() || (
+        signedIn() &&
+        request.auth.uid == uid &&
+        isActiveParticipant() &&
+        isVotingOpen() &&
+        request.resource.data.memberName == canonicalMemberName() &&
+        request.resource.data.keys().hasOnly(['memberName', 'updatedAt'])
+      );
+      allow delete: if isAdmin();
+    }
+
     match /results/{resultId} {
       allow read: if isActiveParticipant();
       allow write: if isAdmin();

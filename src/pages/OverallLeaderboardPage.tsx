@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useContestData } from '../context/ContestDataContext'
-import { getSeasons, subscribeMembers } from '../services/firestoreService'
+import { subscribeMembers, subscribeSeasons } from '../services/firestoreService'
 import { computeOverallStandings } from '../services/scoring'
 import type { OverallStanding } from '../services/scoring'
 import { medalEmoji } from '../utils/medal'
@@ -42,7 +42,6 @@ export function OverallLeaderboardPage() {
   const { config, predictions, result } = useContestData()
   const [seasons, setSeasons] = useState<Season[] | null>(null)
   const [members, setMembers] = useState<Member[]>([])
-  const [error, setError] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>('points')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
@@ -55,22 +54,12 @@ export function OverallLeaderboardPage() {
     }
   }
 
-  useEffect(() => {
-    getSeasons()
-      .then(setSeasons)
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load contest history.'))
-  }, [])
+  // Live subscription, not a one-shot fetch: a reset archiving a new season
+  // (or an admin deleting one) should update this page immediately, not only
+  // after it's remounted (e.g. by navigating away and back).
+  useEffect(() => subscribeSeasons(setSeasons), [])
 
   useEffect(() => subscribeMembers(setMembers), [])
-
-  if (error) {
-    return (
-      <div className="card">
-        <h1>All-time leaderboard</h1>
-        <p className="error-text">{error}</p>
-      </div>
-    )
-  }
 
   if (!seasons) {
     return (

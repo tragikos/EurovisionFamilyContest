@@ -19,6 +19,19 @@ export interface Prediction {
   updatedAt: number
 }
 
+/**
+ * A deliberately thin, always-readable companion to a Prediction: just who
+ * submitted and when, with the actual `order` left out entirely so it can
+ * be shown as submission progress while voting is still open, without
+ * revealing anyone's pick (see the `submissionStatus` collection in
+ * firestore.rules).
+ */
+export interface SubmissionStatus {
+  id: string
+  memberName: string
+  updatedAt: number
+}
+
 export interface FinalResult {
   order: string[]
   finalizedAt: number

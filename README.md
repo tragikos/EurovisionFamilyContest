@@ -14,7 +14,12 @@ window and enters the real result once the show is over.
   not.
 - **Admin(s)** set up the contestant countries and their running (performance)
   order, then manually **start voting**. Admins can vote alongside everyone
-  else.
+  else. The Contestants card minimizes itself the moment voting starts (it's
+  editable if reopened, but touching it while live could invalidate
+  submitted picks) and expands again automatically once the contest is reset
+  — setting up next season's contestants is the next thing an admin needs to
+  do. It locks completely — no editing at all — once voting ends, until
+  that reset happens.
 - While voting is **open**, each **family member** (including admins) drags
   the contestants into the order they predict they'll actually finish in (1st
   place at the top), using the grip handle next to each row (dragging
@@ -23,7 +28,10 @@ window and enters the real result once the show is over.
   button only enables once the order actually differs from what's saved.
 - Submitted picks stay hidden from everyone, including admins, until voting
   closes — an admin who's also playing can't peek at anyone's pick before
-  finalizing their own.
+  finalizing their own. The admin's **Submissions** card expands itself the
+  moment voting starts and shows who has submitted and when, in real time,
+  while voting is open — that's tracked separately from the pick itself
+  precisely so it can stay visible without revealing anyone's order.
 - The admin manually **ends voting**, then enters the **actual final
   standing** once it's announced.
 - The app automatically computes each family member's score (sum of how far
@@ -144,6 +152,13 @@ that server-side, not just in the UI:
     the contestant list, predictions, results, or past-season archives at
     all — a Google account that was never invited can't enumerate any of it,
     only see a "not invited" screen;
+  - "who has submitted, and when" is tracked in its own `submissionStatus`
+    collection - a thin companion to each prediction with just `memberName`
+    and `updatedAt`, no `order` field at all, written alongside the real
+    prediction in the same batch. Since it structurally can't reveal a pick,
+    it stays readable to active participants regardless of voting status,
+    which is what lets the admin's Submissions card show live progress
+    during voting without exposing anyone's actual order;
   - only emails listed in `meta/config.adminEmails` can manage contestants,
     voting status, results, and the invite list;
   - an invited person can flip their own invite from `invited` to `active`

@@ -12,7 +12,6 @@ import {
   deleteAllSeasons,
   deleteSeason,
   exportBackup,
-  getSeasons,
   importBackup,
   inviteMember,
   resetContest,
@@ -24,11 +23,12 @@ import {
   setMemberBlocked,
   setVotingStatus,
   subscribeMembers,
+  subscribeSeasons,
 } from '../services/firestoreService'
-import type { BackupData, Contestant, Member, Prediction, Season, VotingStatus } from '../types'
+import type { BackupData, Contestant, Member, Prediction, Season, SubmissionStatus, VotingStatus } from '../types'
 
 export function AdminPage() {
-  const { ready, config, contestants, predictions } = useContestData()
+  const { ready, config, contestants, predictions, submissionStatuses } = useContestData()
 
   if (!ready || !config) return null
 
@@ -41,7 +41,12 @@ export function AdminPage() {
       />
       <ContestantsCard contestants={contestants} votingStatus={config.votingStatus} />
       {config.votingStatus === 'closed' && <FinalStandingCard contestants={contestants} />}
-      <SubmissionsCard predictions={predictions} contestants={contestants} votingStatus={config.votingStatus} />
+      <SubmissionsCard
+        predictions={predictions}
+        submissionStatuses={submissionStatuses}
+        contestants={contestants}
+        votingStatus={config.votingStatus}
+      />
       <InvitesCard />
       <AdminsCard adminEmails={config.adminEmails} />
       <BackupCard votingStatus={config.votingStatus} />
@@ -191,6 +196,7 @@ function ContestantsCard({
   const confirm = useConfirm()
   const [rows, setRows] = useState<{ key: string; country: string }[]>([])
   const [saving, setSaving] = useState(false)
+  const [open, setOpen] = useState(votingStatus === 'not_started')
 
   useEffect(() => {
     setRows(
@@ -199,6 +205,16 @@ function ContestantsCard({
         .map((c) => ({ key: c.id, country: c.country })),
     )
   }, [contestants])
+
+  // Minimized the moment voting opens - there's usually nothing left to do
+  // here once voting has started - and re-expanded the moment the contest is
+  // reset, since setting up next season's contestants is the very next thing
+  // an admin needs to do. Only reacts to the *transition*, so an admin who
+  // deliberately toggles it manually isn't fought with on every render.
+  useEffect(() => {
+    if (votingStatus === 'open') setOpen(false)
+    else if (votingStatus === 'not_started') setOpen(true)
+  }, [votingStatus])
 
   function updateCountry(key: string, value: string) {
     setRows((prev) => prev.map((row) => (row.key === key ? { ...row, country: value } : row)))
@@ -233,125 +249,179 @@ function ContestantsCard({
     }
   }
 
-  const locked = votingStatus !== 'not_started'
+  // Voting has to be back at 'not_started' (i.e. the contest reset) before
+  // the list can be touched again - editing it once real predictions exist
+  // against these contestant ids could silently invalidate every submitted
+  // pick, so this is a hard lock, not just a warning.
+  const editingDisabled = votingStatus === 'closed' || votingStatus === 'finalized'
 
   return (
     <div className="card">
-      <h2>Contestants &amp; running order</h2>
-      {locked && (
-        <p className="warning-text">
-          Voting has already started or finished. Editing the contestant list now can invalidate submitted
-          predictions — only do this if you know what you're doing.
-        </p>
-      )}
-      <SortableList
-        items={rows}
-        getId={(row) => row.key}
-        onReorder={setRows}
-        renderItem={(row, index, handleProps) => (
-          <div className="sortable-row__content">
-            <span className="sortable-row__rank">{index + 1}</span>
-            <span className="sortable-row__handle" {...handleProps}>⠿</span>
-            <input
-              autoComplete="off"
-              data-lpignore="true"
-              data-1p-ignore="true"
-              data-bwignore="true"
-              data-form-type="other"
-              className="sortable-row__input"
-              value={row.country}
-              placeholder="Country name"
-              onChange={(e) => updateCountry(row.key, e.target.value)}
-            />
+      <button type="button" className="section-toggle" onClick={() => setOpen((o) => !o)}>
+        {open ? '▾' : '▸'} Contestants &amp; running order
+      </button>
+      {open && (
+        <div className="collapsible-card__body">
+          {editingDisabled ? (
+            <p className="warning-text">
+              Voting has ended — the contestant list is locked until you reset the contest for a new season.
+            </p>
+          ) : (
+            votingStatus === 'open' && (
+              <p className="warning-text">
+                Voting is open. Editing the contestant list now can invalidate submitted predictions — only do this
+                if you know what you're doing.
+              </p>
+            )
+          )}
+          <SortableList
+            items={rows}
+            getId={(row) => row.key}
+            onReorder={setRows}
+            disabled={editingDisabled}
+            renderItem={(row, index, handleProps) => (
+              <div className="sortable-row__content">
+                <span className="sortable-row__rank">{index + 1}</span>
+                <span className="sortable-row__handle" {...handleProps}>⠿</span>
+                <input
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                  className="sortable-row__input"
+                  value={row.country}
+                  placeholder="Country name"
+                  disabled={editingDisabled}
+                  onChange={(e) => updateCountry(row.key, e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="link-button link-button--danger"
+                  onClick={() => removeRow(row.key)}
+                  disabled={editingDisabled}
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+          />
+          <div className="form-actions">
+            <button type="button" className="secondary-button" onClick={addRow} disabled={editingDisabled}>
+              + Add country
+            </button>
             <button
               type="button"
-              className="link-button link-button--danger"
-              onClick={() => removeRow(row.key)}
+              className="primary-button"
+              onClick={handleSave}
+              disabled={saving || !hasChanges || editingDisabled}
             >
-              Remove
+              {saving && <Spinner />}
+              {saving ? 'Saving…' : 'Save contestants'}
             </button>
           </div>
-        )}
-      />
-      <div className="form-actions">
-        <button type="button" className="secondary-button" onClick={addRow}>
-          + Add country
-        </button>
-        <button type="button" className="primary-button" onClick={handleSave} disabled={saving || !hasChanges}>
-          {saving && <Spinner />}
-          {saving ? 'Saving…' : 'Save contestants'}
-        </button>
-      </div>
+        </div>
+      )}
     </div>
   )
 }
 
 function SubmissionsCard({
   predictions,
+  submissionStatuses,
   contestants,
   votingStatus,
 }: {
   predictions: Prediction[]
+  submissionStatuses: SubmissionStatus[]
   contestants: Contestant[]
   votingStatus: VotingStatus
 }) {
-  // Picks - including who has submitted - stay completely hidden while
-  // voting is open, even from admins, so an admin who's also playing can't
-  // peek at everyone else's before adjusting their own. This is enforced by
-  // firestore.rules (predictions are only listable once isRevealed()), not
-  // just this UI - while voting is open, `predictions` here only ever
-  // contains the current admin's own submission, if any.
+  // Who's submitted and when (submissionStatuses) is always visible, even
+  // while voting is open - it deliberately carries no `order` field, so it
+  // can't leak anyone's actual pick. The pick itself (predictions) only
+  // becomes readable once voting is no longer open - while it's open,
+  // `predictions` here only ever contains the current admin's own
+  // submission, if any, so the expand-to-see-order toggle below is
+  // effectively unavailable for anyone else's row until then.
   const revealPicks = votingStatus !== 'open'
   const [query, setQuery] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
 
-  const sorted = [...predictions].sort((a, b) => a.memberName.localeCompare(b.memberName))
+  // Expanded the moment voting opens, since tracking who's submitted is
+  // exactly what an admin wants front-and-center once people can actually
+  // start submitting. Only reacts to the *transition* into 'open', so
+  // manually collapsing it again isn't fought with on every render.
+  useEffect(() => {
+    if (votingStatus === 'open') setOpen(true)
+  }, [votingStatus])
+
+  const predictionById = new Map(predictions.map((p) => [p.id, p]))
+  const sorted = [...submissionStatuses].sort((a, b) => a.memberName.localeCompare(b.memberName))
   const filtered = query.trim()
-    ? sorted.filter((p) => p.memberName.toLowerCase().includes(query.trim().toLowerCase()))
+    ? sorted.filter((s) => s.memberName.toLowerCase().includes(query.trim().toLowerCase()))
     : sorted
 
   return (
-    <CollapsibleCard title={revealPicks ? `Submissions (${predictions.length})` : 'Submissions'}>
-      {!revealPicks ? (
-        <p className="hint-text">
-          Submissions - including who has submitted - stay completely hidden until voting closes, even from admins.
-        </p>
-      ) : predictions.length === 0 ? (
-        <p className="hint-text">Nobody has submitted a prediction yet.</p>
-      ) : (
-        <>
-          {predictions.length > 6 && (
-            <input
-              autoComplete="off"
-              data-lpignore="true"
-              data-1p-ignore="true"
-              data-bwignore="true"
-              data-form-type="other"
-              className="admin-email-input"
-              value={query}
-              placeholder="Filter by name…"
-              onChange={(e) => setQuery(e.target.value)}
-            />
+    <div className="card">
+      <button type="button" className="section-toggle" onClick={() => setOpen((o) => !o)}>
+        {open ? '▾' : '▸'} Submissions ({submissionStatuses.length})
+      </button>
+      {open && (
+        <div className="collapsible-card__body">
+          {!revealPicks && (
+            <p className="hint-text">
+              Picks stay hidden until voting closes, even from admins - names and times only.
+            </p>
           )}
-          <ul className="submissions-list">
-            {filtered.map((p) => (
-              <li key={p.id}>
-                <button
-                  type="button"
-                  className="link-button submission-row-toggle"
-                  onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}
-                >
-                  {expandedId === p.id ? '▾' : '▸'} {p.memberName}
-                </button>{' '}
-                <span className="hint-text">— saved {new Date(p.updatedAt).toLocaleString()}</span>
-                {expandedId === p.id && <PredictionOrderList contestants={contestants} order={p.order} />}
-              </li>
-            ))}
-          </ul>
-          {filtered.length === 0 && <p className="hint-text">No submissions match "{query}".</p>}
-        </>
+          {submissionStatuses.length === 0 ? (
+            <p className="hint-text">Nobody has submitted a prediction yet.</p>
+          ) : (
+            <>
+              {submissionStatuses.length > 6 && (
+                <input
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                  className="admin-email-input"
+                  value={query}
+                  placeholder="Filter by name…"
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              )}
+              <ul className="submissions-list">
+                {filtered.map((s) => {
+                  const prediction = predictionById.get(s.id)
+                  return (
+                    <li key={s.id}>
+                      {revealPicks && prediction ? (
+                        <button
+                          type="button"
+                          className="link-button submission-row-toggle"
+                          onClick={() => setExpandedId(expandedId === s.id ? null : s.id)}
+                        >
+                          {expandedId === s.id ? '▾' : '▸'} {s.memberName}
+                        </button>
+                      ) : (
+                        s.memberName
+                      )}{' '}
+                      <span className="hint-text">— saved {new Date(s.updatedAt).toLocaleString()}</span>
+                      {expandedId === s.id && prediction && (
+                        <PredictionOrderList contestants={contestants} order={prediction.order} />
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+              {filtered.length === 0 && <p className="hint-text">No submissions match "{query}".</p>}
+            </>
+          )}
+        </div>
       )}
-    </CollapsibleCard>
+    </div>
   )
 }
 
@@ -416,6 +486,7 @@ function InvitesCard() {
   const [inviting, setInviting] = useState(false)
   const [expandedEmail, setExpandedEmail] = useState<string | null>(null)
   const [seasons, setSeasons] = useState<Season[] | null>(null)
+  const [seasonsWanted, setSeasonsWanted] = useState(false)
   const [loadingSeasons, setLoadingSeasons] = useState(false)
   const [blockingEmail, setBlockingEmail] = useState<string | null>(null)
   const [editingEmail, setEditingEmail] = useState<string | null>(null)
@@ -423,6 +494,19 @@ function InvitesCard() {
   const [savingName, setSavingName] = useState(false)
 
   useEffect(() => subscribeMembers(setMembers), [])
+
+  // Only starts listening once a row is first expanded (most admin visits
+  // never need past-submission history), but stays live from then on - a
+  // one-shot fetch here would go stale the moment a reset archives a new
+  // season while this card is still open.
+  useEffect(() => {
+    if (!seasonsWanted) return
+    setLoadingSeasons(true)
+    return subscribeSeasons((result) => {
+      setSeasons(result)
+      setLoadingSeasons(false)
+    })
+  }, [seasonsWanted])
 
   async function handleInvite() {
     const email = newEmail.trim().toLowerCase()
@@ -469,22 +553,12 @@ function InvitesCard() {
     }
   }
 
-  async function toggleExpand(email: string) {
+  function toggleExpand(email: string) {
     if (expandedEmail === email) {
       setExpandedEmail(null)
       return
     }
-    if (!seasons) {
-      setLoadingSeasons(true)
-      try {
-        setSeasons(await getSeasons())
-      } catch (err) {
-        showError(errorMessage(err, 'Failed to load past submissions.'))
-        return
-      } finally {
-        setLoadingSeasons(false)
-      }
-    }
+    setSeasonsWanted(true)
     setExpandedEmail(email)
   }
 
@@ -705,24 +779,12 @@ function HistoryCard() {
   const [deletingAll, setDeletingAll] = useState(false)
 
   useEffect(() => {
-    let cancelled = false
     setLoading(true)
-    getSeasons()
-      .then((result) => {
-        if (cancelled) return
-        setSeasons(result)
-        setLoaded(true)
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) showError(errorMessage(err, 'Failed to load contest history.'))
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return subscribeSeasons((result) => {
+      setSeasons(result)
+      setLoaded(true)
+      setLoading(false)
+    })
   }, [])
 
   async function handleDeleteOne(season: Season) {

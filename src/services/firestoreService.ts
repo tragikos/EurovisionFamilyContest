@@ -23,6 +23,7 @@ import type {
   Member,
   Prediction,
   Season,
+  SubmissionStatus,
   VotingStatus,
 } from '../types'
 
@@ -38,6 +39,7 @@ const configRef = () => doc(requireDb(), 'meta', 'config')
 const resultsRef = () => doc(requireDb(), 'results', 'final')
 const contestantsCol = () => collection(requireDb(), 'contestants')
 const predictionsCol = () => collection(requireDb(), 'predictions')
+const submissionStatusCol = () => collection(requireDb(), 'submissionStatus')
 const membersCol = () => collection(requireDb(), 'members')
 const seasonsCol = () => collection(requireDb(), 'seasons')
 
@@ -155,18 +157,42 @@ export function subscribeOwnPrediction(uid: string, callback: (predictions: Pred
 }
 
 /**
+ * Always readable to active participants (unlike /predictions, which stays
+ * hidden until voting is no longer open) - just who has submitted and when,
+ * with no `order` field, so admins can track submission progress during
+ * voting without seeing anyone's actual pick.
+ */
+export function subscribeSubmissionStatuses(callback: (statuses: SubmissionStatus[]) => void) {
+  return onSnapshot(
+    submissionStatusCol(),
+    (snapshot) => callback(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as SubmissionStatus)),
+    logSnapshotError('submission status'),
+  )
+}
+
+/**
  * The prediction's doc id is the signer's own Firebase uid (not a slug of
  * their name), both so two people can't collide on the same display name
  * and so Firestore rules can enforce "you may only write your own
  * prediction" with a simple `request.auth.uid == predictionId` check.
+ *
+ * Writes the actual pick and its thin, always-visible submissionStatus
+ * companion (memberName + updatedAt only) together in one batch, so the two
+ * can never drift out of sync with each other.
  */
 export async function submitPrediction(uid: string, memberName: string, order: string[]) {
-  const prediction: Omit<Prediction, 'id'> = {
-    memberName: memberName.trim(),
-    order,
-    updatedAt: Date.now(),
-  }
-  await setDoc(doc(predictionsCol(), uid), prediction)
+  const trimmedName = memberName.trim()
+  const updatedAt = Date.now()
+  const batch = writeBatch(requireDb())
+  batch.set(doc(predictionsCol(), uid), { memberName: trimmedName, order, updatedAt } satisfies Omit<
+    Prediction,
+    'id'
+  >)
+  batch.set(doc(submissionStatusCol(), uid), { memberName: trimmedName, updatedAt } satisfies Omit<
+    SubmissionStatus,
+    'id'
+  >)
+  await batch.commit()
 }
 
 export function subscribeResult(callback: (result: FinalResult | null) => void) {
@@ -190,9 +216,10 @@ export async function saveFinalResult(order: string[]) {
  * cleared afterward so the admin picks a fresh one for the new season.
  */
 export async function resetContest(options: { clearContestants: boolean; title: string }) {
-  const [contestantDocs, predictionDocs, resultSnap] = await Promise.all([
+  const [contestantDocs, predictionDocs, submissionStatusDocs, resultSnap] = await Promise.all([
     getDocs(contestantsCol()),
     getDocs(predictionsCol()),
+    getDocs(submissionStatusCol()),
     getDoc(resultsRef()),
   ])
 
@@ -206,6 +233,7 @@ export async function resetContest(options: { clearContestants: boolean; title: 
   await setDoc(doc(seasonsCol(), String(season.archivedAt)), season)
 
   await Promise.all(predictionDocs.docs.map((d) => deleteDoc(d.ref)))
+  await Promise.all(submissionStatusDocs.docs.map((d) => deleteDoc(d.ref)))
   await deleteDoc(resultsRef())
 
   if (options.clearContestants) {
@@ -219,6 +247,21 @@ export async function getSeasons(): Promise<Season[]> {
   const seasonsQuery = query(seasonsCol(), orderBy('archivedAt', 'desc'))
   const snapshot = await getDocs(seasonsQuery)
   return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as Season)
+}
+
+/**
+ * Live version of getSeasons() - use this wherever archived seasons are
+ * displayed on an already-mounted page, so a reset (which archives a new
+ * season) or a history deletion shows up immediately instead of only after
+ * the component remounts (e.g. a full page reload).
+ */
+export function subscribeSeasons(callback: (seasons: Season[]) => void) {
+  const seasonsQuery = query(seasonsCol(), orderBy('archivedAt', 'desc'))
+  return onSnapshot(
+    seasonsQuery,
+    (snapshot) => callback(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as Season)),
+    logSnapshotError('seasons'),
+  )
 }
 
 /** Permanently deletes one archived season (e.g. a test run). Does not touch the live contest. */
@@ -352,12 +395,14 @@ async function commitInChunks(ops: ((batch: WriteBatch) => void)[], chunkSize = 
  * leftover docs at worst, never a wiped database with nothing restored yet.
  */
 export async function importBackup(data: BackupData) {
-  const [existingContestants, existingPredictions, existingMembers, existingSeasons] = await Promise.all([
-    getDocs(contestantsCol()),
-    getDocs(predictionsCol()),
-    getDocs(membersCol()),
-    getDocs(seasonsCol()),
-  ])
+  const [existingContestants, existingPredictions, existingSubmissionStatus, existingMembers, existingSeasons] =
+    await Promise.all([
+      getDocs(contestantsCol()),
+      getDocs(predictionsCol()),
+      getDocs(submissionStatusCol()),
+      getDocs(membersCol()),
+      getDocs(seasonsCol()),
+    ])
 
   const setOps: ((batch: WriteBatch) => void)[] = []
   const deleteOps: ((batch: WriteBatch) => void)[] = []
@@ -377,8 +422,17 @@ export async function importBackup(data: BackupData) {
     setOps.push((b) =>
       b.set(doc(predictionsCol(), p.id), { memberName: p.memberName, order: p.order, updatedAt: p.updatedAt }),
     )
+    // submissionStatus is a derived, always-visible companion to each
+    // prediction (memberName + updatedAt, no order) - regenerated here from
+    // the same backup data rather than stored separately in BackupData.
+    setOps.push((b) =>
+      b.set(doc(submissionStatusCol(), p.id), { memberName: p.memberName, updatedAt: p.updatedAt }),
+    )
   }
   for (const d of existingPredictions.docs) {
+    if (!newPredictionIds.has(d.id)) deleteOps.push((b) => b.delete(d.ref))
+  }
+  for (const d of existingSubmissionStatus.docs) {
     if (!newPredictionIds.has(d.id)) deleteOps.push((b) => b.delete(d.ref))
   }
 

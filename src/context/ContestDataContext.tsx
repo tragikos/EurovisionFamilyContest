@@ -7,8 +7,9 @@ import {
   subscribeOwnPrediction,
   subscribePredictions,
   subscribeResult,
+  subscribeSubmissionStatuses,
 } from '../services/firestoreService'
-import type { Contestant, ContestConfig, FinalResult, Prediction } from '../types'
+import type { Contestant, ContestConfig, FinalResult, Prediction, SubmissionStatus } from '../types'
 
 interface ContestDataValue {
   ready: boolean
@@ -16,6 +17,7 @@ interface ContestDataValue {
   config: ContestConfig | null
   contestants: Contestant[]
   predictions: Prediction[]
+  submissionStatuses: SubmissionStatus[]
   result: FinalResult | null
 }
 
@@ -28,6 +30,7 @@ export function ContestDataProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<ContestConfig | null>(null)
   const [contestants, setContestants] = useState<Contestant[]>([])
   const [predictions, setPredictions] = useState<Prediction[]>([])
+  const [submissionStatuses, setSubmissionStatuses] = useState<SubmissionStatus[]>([])
   const [result, setResult] = useState<FinalResult | null>(null)
 
   useEffect(() => {
@@ -39,6 +42,7 @@ export function ContestDataProvider({ children }: { children: ReactNode }) {
       setConfig(null)
       setContestants([])
       setPredictions([])
+      setSubmissionStatuses([])
       setResult(null)
       setReady(true)
       return
@@ -49,6 +53,11 @@ export function ContestDataProvider({ children }: { children: ReactNode }) {
       subscribeConfig(setConfig),
       subscribeContestants(setContestants),
       subscribeResult(setResult),
+      // Unlike predictions, this stays subscribed as a normal collection
+      // listener regardless of voting status - it's always safe to read
+      // (see submissionStatus's own rule and Prediction/SubmissionStatus's
+      // doc comments).
+      subscribeSubmissionStatuses(setSubmissionStatuses),
     ]
     setReady(true)
 
@@ -70,7 +79,7 @@ export function ContestDataProvider({ children }: { children: ReactNode }) {
     return revealed ? subscribePredictions(setPredictions) : subscribeOwnPrediction(user.uid, setPredictions)
   }, [user, config])
 
-  const value: ContestDataValue = { ready, error, config, contestants, predictions, result }
+  const value: ContestDataValue = { ready, error, config, contestants, predictions, submissionStatuses, result }
 
   return <ContestDataContext.Provider value={value}>{children}</ContestDataContext.Provider>
 }
